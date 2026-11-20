@@ -37,12 +37,13 @@ class SolveArtPainter extends CustomPainter {
 
     if (showGuides) {
       canvas.drawCircle(
-          c,
-          radius,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5
-            ..color = const Color(0x12000000));
+        c,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = const Color(0x12000000),
+      );
     }
 
     final shown = progress * pours.length;
@@ -62,26 +63,29 @@ class SolveArtPainter extends CustomPainter {
       final color = Palette.balls[p.color % Palette.balls.length];
       final width = base * (0.7 + 0.35 * p.count);
       canvas.drawPath(
-          drawn,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = width * 2.2
-            ..color = color.withValues(alpha: 0.13));
+        drawn,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = width * 2.2
+          ..color = color.withValues(alpha: 0.13),
+      );
       canvas.drawPath(
-          drawn,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = width
-            ..color = color.withValues(alpha: 0.9));
+        drawn,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = width
+          ..color = color.withValues(alpha: 0.9),
+      );
       canvas.drawPath(
-          drawn,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeCap = StrokeCap.round
-            ..strokeWidth = width * 0.22
-            ..color = Colors.white.withValues(alpha: 0.5));
+        drawn,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeWidth = width * 0.22
+          ..color = Colors.white.withValues(alpha: 0.5),
+      );
       if (part >= 1 && p.completedTube) _sparkle(canvas, b, base * 3.2, color);
     }
 
