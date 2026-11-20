@@ -96,6 +96,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       if (s == AnimationStatus.completed) widget.onWinAnimationDone?.call();
     });
     widget.game.addListener(_onGame);
+    _reportCalm();
   }
 
   @override
@@ -104,6 +105,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (old.game != widget.game) {
       old.game.removeListener(_onGame);
       widget.game.addListener(_onGame);
+      _reportCalm();
     }
   }
 
@@ -116,7 +118,19 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (widget.game.selected == null && _lift.value > 0 && _pending == null) {
       _lift.reverse();
     }
+    _reportCalm();
     setState(() {});
+  }
+
+  /// The soundscape softens as tubes complete (and returns with a new board).
+  void _reportCalm() {
+    final b = widget.game.board;
+    final colors = widget.game.puzzle.colors;
+    var done = 0;
+    for (var i = 0; i < b.tubeCount; i++) {
+      if (b.isTubeComplete(i)) done++;
+    }
+    Sounds.setCalm(done / colors);
   }
 
   @override
@@ -151,6 +165,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     }
     if (p.won) {
       Haptics.win();
+      Sounds.solved();
       _win.forward(from: 0);
     }
     setState(() {});

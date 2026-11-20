@@ -68,22 +68,30 @@ void main() {
   });
 
   test('picky tube only accepts its color', () {
-    final b = BoardState([
-      [0, 1],
-      [1, 0],
-      [],
-    ], 2, rules: const Rules(pickyTube: 2, pickyColor: 0));
+    final b = BoardState(
+      [
+        [0, 1],
+        [1, 0],
+        [],
+      ],
+      2,
+      rules: const Rules(pickyTube: 2, pickyColor: 0),
+    );
     expect(b.canPour(0, 2), isFalse); // top is 1
     expect(b.canPour(1, 2), isTrue); // top is 0
   });
 
   test('locked tube opens after N moves', () {
-    final b = BoardState([
-      [0, 1],
-      [1, 0],
-      [],
-      [],
-    ], 2, rules: const Rules(lockedTube: 1, unlockAfter: 1));
+    final b = BoardState(
+      [
+        [0, 1],
+        [1, 0],
+        [],
+        [],
+      ],
+      2,
+      rules: const Rules(lockedTube: 1, unlockAfter: 1),
+    );
     expect(b.canPick(1), isFalse);
     expect(b.canPour(0, 1), isFalse);
     final n = b.apply(const Move(0, 2));

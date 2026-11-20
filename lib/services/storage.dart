@@ -112,6 +112,9 @@ class Storage {
   String get ambience => _prefs.getString('ambience') ?? 'off';
   Future<void> setAmbience(String v) => _prefs.setString('ambience', v);
 
+  bool get musicOn => _prefs.getBool('music') ?? false;
+  Future<void> setMusic(bool v) => _prefs.setBool('music', v);
+
   bool get soundOn => _prefs.getBool('sound') ?? true;
   Future<void> setSound(bool v) => _prefs.setBool('sound', v);
 

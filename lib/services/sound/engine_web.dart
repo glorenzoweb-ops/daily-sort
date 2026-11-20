@@ -8,12 +8,18 @@ import 'synth.dart';
 
 NoteEngine createEngine() => _WebEngine();
 
+class _Loop {
+  final web.AudioBufferSourceNode src;
+  final web.GainNode gain;
+  _Loop(this.src, this.gain);
+}
+
 /// Web Audio: sample-accurate, polyphonic, and works on iOS Safari once the
 /// first tap has resumed the context.
 class _WebEngine implements NoteEngine {
   web.AudioContext? _ctx;
   final List<web.AudioBuffer> _buffers = [];
-  web.AudioBufferSourceNode? _loop;
+  final Map<String, _Loop> _loops = {};
 
   @override
   Future<void> load(List<Float32List> notes) async {
@@ -38,10 +44,10 @@ class _WebEngine implements NoteEngine {
   }
 
   @override
-  Future<void> playLoop(Float32List samples, int rate, double volume) async {
+  Future<void> playLoop(String channel, Float32List samples, int rate, double volume) async {
     final ctx = _ctx;
     if (ctx == null) return;
-    stopLoop();
+    stopLoop(channel);
     if (ctx.state != 'running') ctx.resume();
     final b = ctx.createBuffer(1, samples.length, rate);
     b.copyToChannel(samples.toJS, 0);
@@ -55,14 +61,32 @@ class _WebEngine implements NoteEngine {
     src.connect(gain);
     gain.connect(ctx.destination);
     src.start();
-    _loop = src;
+    _loops[channel] = _Loop(src, gain);
   }
 
   @override
-  void stopLoop() {
+  void stopLoop(String channel) {
+    final l = _loops.remove(channel);
+    final ctx = _ctx;
+    if (l == null || ctx == null) return;
     try {
-      _loop?.stop();
+      // Short fade so it never clicks.
+      final now = ctx.currentTime;
+      l.gain.gain.cancelScheduledValues(now);
+      l.gain.gain.setValueAtTime(l.gain.gain.value, now);
+      l.gain.gain.linearRampToValueAtTime(0, now + 0.6);
+      l.src.stop(now + 0.65);
     } catch (_) {}
-    _loop = null;
+  }
+
+  @override
+  void setLoopVolume(String channel, double volume, {double seconds = 2.5}) {
+    final l = _loops[channel];
+    final ctx = _ctx;
+    if (l == null || ctx == null) return;
+    final now = ctx.currentTime;
+    l.gain.gain.cancelScheduledValues(now);
+    l.gain.gain.setValueAtTime(l.gain.gain.value, now);
+    l.gain.gain.linearRampToValueAtTime(volume, now + seconds);
   }
 }
