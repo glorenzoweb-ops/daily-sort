@@ -1,0 +1,35 @@
+{
+    "name": "Daily Sort",
+    "short_name": "Daily Sort",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#FFF7EA",
+    "theme_color": "#FFF7EA",
+    "description": "One color-sort puzzle a day, same for everyone.",
+    "orientation": "portrait-primary",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
