@@ -12,7 +12,7 @@ void main() {
     final storage = await Storage.open();
     await tester.pumpWidget(DailySortApp(storage: storage, premium: ComingSoonPremium()));
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
     expect(find.text('DAILY SORT'), findsOneWidget);
     expect(find.text('MOVES  '), findsOneWidget);
   });

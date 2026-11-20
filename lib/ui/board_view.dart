@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../game/board.dart';
@@ -62,6 +63,15 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   late final AnimationController _glow = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
   late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
 
+  // A clock that always runs, for idle life (breathing, blinking), jelly
+  // wobble and particles.
+  late final Ticker _ticker;
+  final ValueNotifier<double> _time = ValueNotifier(0);
+  final Map<int, double> _landAt = {}; // tube → time of last landing
+  final List<_Spark> _sparks = [];
+  double _shakeAt = -10; // screen shake start
+  final _rnd = math.Random();
+
   int? _liftTube; // tube whose top ball is lifted (or dropping back)
   Poured? _pending;
   int? _shakeTube;
@@ -71,6 +81,11 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _ticker = createTicker((elapsed) {
+      final t = elapsed.inMicroseconds / 1e6;
+      _sparks.removeWhere((s) => t - s.born > 1.3);
+      _time.value = t;
+    })..start();
     _pour.addStatusListener((s) {
       if (s == AnimationStatus.completed) _finishPour();
     });
@@ -107,6 +122,8 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     for (final c in [_lift, _pour, _shake, _glow, _win]) {
       c.dispose();
     }
+    _ticker.dispose();
+    _time.dispose();
     super.dispose();
   }
 
@@ -115,11 +132,13 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (p == null) return;
     _pending = null;
     Haptics.land();
+    _landAt[p.move.to] = _time.value;
     if (p.completedTube) {
       Haptics.tubeComplete();
       Sounds.tubeComplete(p.color);
       _glowTube = p.move.to;
       _glow.forward(from: 0);
+      _burst(p.move.to, p.color);
     }
     if (p.before.lockRemaining == 1) {
       // The locked tube just opened.
@@ -131,6 +150,29 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       _win.forward(from: 0);
     }
     setState(() {});
+  }
+
+  /// Confetti puff out of a tube that just completed, plus a tiny shake.
+  void _burst(int tube, int color) {
+    final L = _layout;
+    if (L == null) return;
+    final origin = Offset(L.cx(tube), L.tubeTop);
+    for (var i = 0; i < 28; i++) {
+      final a = -math.pi / 2 + (_rnd.nextDouble() - 0.5) * 2.2;
+      final v = L.ball * (3.5 + _rnd.nextDouble() * 4.5);
+      _sparks.add(
+        _Spark(
+          origin,
+          Offset(math.cos(a), math.sin(a)) * v,
+          _time.value,
+          i % 4 == 0 ? Palette.gold : Palette.balls[color],
+          L.ball * (0.08 + _rnd.nextDouble() * 0.1),
+          _rnd.nextBool(),
+          _rnd.nextDouble() * 6,
+        ),
+      );
+    }
+    _shakeAt = _time.value;
   }
 
   void _onTap(Offset pos) {
@@ -185,7 +227,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
           behavior: HitTestBehavior.opaque,
           onTapDown: (d) => _onTap(d.localPosition),
           child: AnimatedBuilder(
-            animation: Listenable.merge([_lift, _pour, _shake, _glow, _win]),
+            animation: Listenable.merge([_lift, _pour, _shake, _glow, _win, _time]),
             builder: (context, _) => CustomPaint(
               size: c.biggest,
               painter: _BoardPainter(
@@ -201,6 +243,11 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                 glowT: _glow.value,
                 winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
                 won: game.status == GameStatus.won && _pending == null,
+                time: _time.value,
+                landAt: _landAt,
+                sparks: _sparks,
+                shakeAt: _shakeAt,
+                lookTube: _pending?.move.to ?? game.selected,
               ),
             ),
           ),
@@ -223,8 +270,18 @@ class _BoardPainter extends CustomPainter {
   final double glowT;
   final double winT;
   final bool won;
+  final double time;
+  final Map<int, double> landAt;
+  final List<_Spark> sparks;
+  final double shakeAt;
+  final int? lookTube;
 
   _BoardPainter({
+    required this.time,
+    required this.landAt,
+    required this.sparks,
+    required this.shakeAt,
+    required this.lookTube,
     required this.layout,
     required this.board,
     required this.pending,
@@ -245,6 +302,14 @@ class _BoardPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final L = layout;
     final p = pending;
+    // Tiny screen shake right after a tube completes.
+    final sd = time - shakeAt;
+    canvas.save();
+    if (sd >= 0 && sd < 0.3) {
+      final k = (1 - sd / 0.3) * L.ball * 0.06;
+      canvas.translate(math.sin(sd * 70) * k, math.cos(sd * 53) * k);
+    }
+    final lookX = lookTube == null ? null : L.cx(lookTube!);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
       if (i == shakeTube && shakeT > 0 && shakeT < 1) {
@@ -256,6 +321,13 @@ class _BoardPainter extends CustomPainter {
       }
       canvas.save();
       canvas.translate(dx, dy);
+
+      // Jelly: the tube and its balls wobble for a moment after a landing.
+      final wob = _wobble(i);
+      final r0 = L.tubeRect(i);
+      canvas.translate(r0.center.dx, r0.bottom);
+      canvas.scale(1 + 0.03 * wob, 1 - 0.015 * wob);
+      canvas.translate(-r0.center.dx, -r0.bottom);
 
       final complete = board.isTubeComplete(i) && p == null;
       var glow = 0.0;
@@ -270,22 +342,63 @@ class _BoardPainter extends CustomPainter {
       if (p != null && p.move.from == i) n -= p.count;
       for (var k = 0; k < n; k++) {
         var y = L.slotY(k);
-        if (p == null && i == liftTube && k == n - 1 && liftT > 0) {
+        final lifted = p == null && i == liftTube && k == n - 1 && liftT > 0;
+        if (lifted) {
           y = y + (L.liftY - y) * liftT;
         }
-        _ball(canvas, Offset(L.cx(i), y), Palette.balls[t[k]], L.ball / 2);
+        final Mood mood;
+        if (won || complete) {
+          mood = Mood.cheer;
+        } else if (lifted && liftT > 0.5) {
+          mood = Mood.surprised;
+        } else if ((k > 0 && t[k - 1] == t[k]) || (k + 1 < n && t[k + 1] == t[k])) {
+          mood = Mood.happy;
+        } else {
+          mood = Mood.worried;
+        }
+        // Balls nearer the top wobble more.
+        final jelly = wob * (0.4 + 0.6 * (k + 1) / math.max(1, n));
+        _buddy(canvas, Offset(L.cx(i), y), t[k], L.ball / 2, mood, i * 7 + k * 13, lookX, jelly);
       }
       if (board.isLocked(i)) _lockMark(canvas, L.tubeRect(i), board.lockRemaining);
       canvas.restore();
     }
     if (p != null) _flying(canvas, p);
+    canvas.restore();
+    _drawSparks(canvas);
+  }
+
+  double _wobble(int tube) {
+    final t0 = landAt[tube];
+    if (t0 == null) return 0;
+    final d = time - t0;
+    if (d < 0 || d > 0.8) return 0;
+    return math.exp(-d * 6) * math.cos(d * 30);
+  }
+
+  void _drawSparks(Canvas canvas) {
+    final g = layout.ball * 14;
+    for (final s in sparks) {
+      final d = time - s.born;
+      if (d < 0 || d > 1.3) continue;
+      final pos = s.origin + s.v * d + Offset(0, 0.5 * g * d * d);
+      final paint = Paint()..color = s.color.withValues(alpha: (1 - d / 1.3).clamp(0.0, 1.0));
+      if (s.round) {
+        canvas.drawCircle(pos, s.size, paint);
+      } else {
+        canvas.save();
+        canvas.translate(pos.dx, pos.dy);
+        canvas.rotate(s.spin * d * 3);
+        canvas.drawRect(Rect.fromCenter(center: Offset.zero, width: s.size * 2.2, height: s.size * 1.1), paint);
+        canvas.restore();
+      }
+    }
   }
 
   void _flying(Canvas canvas, Poured p) {
     final L = layout;
     final src = p.before.tubes[p.move.from];
     final dstLen = p.before.tubes[p.move.to].length;
-    final color = Palette.balls[p.color];
     const stagger = 0.13;
     final span = 1 - stagger * (p.count - 1);
     for (var q = 0; q < p.count; q++) {
@@ -321,7 +434,7 @@ class _BoardPainter extends CustomPainter {
       canvas.save();
       canvas.translate(x, y + (1 - scaleY) * L.ball / 2);
       canvas.scale(scaleX, scaleY);
-      _ball(canvas, Offset.zero, color, L.ball / 2);
+      _buddy(canvas, Offset.zero, p.color, L.ball / 2, Mood.excited, 99 + q, x1, 0);
       canvas.restore();
     }
   }
@@ -428,6 +541,113 @@ class _BoardPainter extends CustomPainter {
     tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
   }
 
+  /// A ball with a face. It breathes, blinks, looks toward the tube you
+  /// picked, and its expression follows its mood.
+  void _buddy(Canvas canvas, Offset c, int colorIndex, double r, Mood mood, int seed, double? lookX, double jelly) {
+    final phase = seed * 1.7;
+    // Breathing (idle life) plus jelly wobble, anchored at the ball's bottom.
+    final breath = 0.025 * math.sin(time * 2.4 + phase);
+    final sx = 1 - breath * 0.6 + 0.12 * jelly;
+    final sy = 1 + breath - 0.12 * jelly;
+    canvas.save();
+    canvas.translate(c.dx, c.dy + r);
+    canvas.scale(sx, sy);
+    canvas.translate(0, -r);
+    if (mood == Mood.cheer) {
+      // Little happy hop, each ball on its own beat.
+      canvas.translate(0, -r * 0.08 * math.max(0, math.sin(time * 6 + phase)));
+    }
+    _ball(canvas, Offset.zero, Palette.balls[colorIndex], r);
+    _face(canvas, r, mood, phase, lookX == null ? 0 : ((lookX - c.dx) / (r * 4)).clamp(-1.0, 1.0));
+    canvas.restore();
+  }
+
+  void _face(Canvas canvas, double r, Mood mood, double phase, double look) {
+    const ink = Color(0xE61B1B2F);
+    final eyeY = -r * 0.08;
+    final eyeDx = r * 0.3;
+    final lx = look * r * 0.07;
+    final blinking = (time + phase) % 4.3 < 0.13;
+
+    // Blush.
+    final blush = Paint()..color = const Color(0x40FF5A7A);
+    canvas.drawCircle(Offset(-r * 0.52, r * 0.2), r * 0.13, blush);
+    canvas.drawCircle(Offset(r * 0.52, r * 0.2), r * 0.13, blush);
+
+    final stroke = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = r * 0.09;
+
+    // Eyes.
+    if (mood == Mood.cheer) {
+      for (final sx in [-1.0, 1.0]) {
+        final e = Offset(sx * eyeDx, eyeY);
+        canvas.drawArc(
+          Rect.fromCenter(center: e, width: r * 0.32, height: r * 0.3),
+          math.pi * 1.1,
+          math.pi * 0.8,
+          false,
+          stroke,
+        );
+      }
+    } else {
+      final big = mood == Mood.surprised || mood == Mood.excited;
+      final h = blinking ? r * 0.04 : r * (big ? 0.3 : 0.24);
+      final w = r * (big ? 0.22 : 0.19);
+      for (final sx in [-1.0, 1.0]) {
+        final e = Offset(sx * eyeDx + lx, eyeY);
+        canvas.drawOval(Rect.fromCenter(center: e, width: w, height: h), Paint()..color = ink);
+        if (!blinking) {
+          canvas.drawCircle(e.translate(w * 0.18, -h * 0.22), w * 0.2, Paint()..color = Colors.white);
+        }
+      }
+      if (mood == Mood.worried) {
+        // Slanted brows.
+        for (final sx in [-1.0, 1.0]) {
+          canvas.drawLine(
+            Offset(sx * (eyeDx + r * 0.1), eyeY - r * 0.2),
+            Offset(sx * (eyeDx - r * 0.08), eyeY - r * 0.27),
+            stroke..strokeWidth = r * 0.06,
+          );
+        }
+        stroke.strokeWidth = r * 0.09;
+      }
+    }
+
+    // Mouth.
+    final m = Offset(lx * 0.5, r * 0.3);
+    switch (mood) {
+      case Mood.cheer:
+        final path = Path()
+          ..moveTo(m.dx - r * 0.2, m.dy - r * 0.05)
+          ..quadraticBezierTo(m.dx, m.dy + r * 0.38, m.dx + r * 0.2, m.dy - r * 0.05)
+          ..close();
+        canvas.drawPath(path, Paint()..color = ink);
+        canvas.drawCircle(Offset(m.dx, m.dy + r * 0.1), r * 0.07, Paint()..color = const Color(0xFFFF7A90));
+      case Mood.happy:
+        canvas.drawArc(
+          Rect.fromCenter(center: m.translate(0, -r * 0.06), width: r * 0.4, height: r * 0.28),
+          0.15 * math.pi,
+          0.7 * math.pi,
+          false,
+          stroke,
+        );
+      case Mood.worried:
+        canvas.drawArc(
+          Rect.fromCenter(center: m.translate(0, r * 0.06), width: r * 0.32, height: r * 0.2),
+          1.15 * math.pi,
+          0.7 * math.pi,
+          false,
+          stroke,
+        );
+      case Mood.surprised:
+      case Mood.excited:
+        canvas.drawOval(Rect.fromCenter(center: m, width: r * 0.17, height: r * 0.21), Paint()..color = ink);
+    }
+  }
+
   void _ball(Canvas canvas, Offset c, Color color, double r) {
     canvas.drawCircle(c.translate(0, r * 0.1), r, Paint()..color = const Color(0x1F000000));
     final shader = RadialGradient(
@@ -441,4 +661,18 @@ class _BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BoardPainter old) => true;
+}
+
+/// How a ball buddy feels.
+enum Mood { worried, happy, cheer, surprised, excited }
+
+class _Spark {
+  final Offset origin;
+  final Offset v;
+  final double born;
+  final Color color;
+  final double size;
+  final bool round;
+  final double spin;
+  const _Spark(this.origin, this.v, this.born, this.color, this.size, this.round, this.spin);
 }
