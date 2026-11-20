@@ -38,7 +38,7 @@ void main() {
     final start = DateTime(2026, 11, 20);
     for (var i = 0; i < 400; i++) {
       final p = puzzleForDay(start.add(Duration(days: i)));
-      final spec = difficultySpecs[p.difficulty]!;
+      final spec = p.spec;
       expect(p.number, i + 1);
       expect(p.par, inInclusiveRange(spec.minPar, spec.maxPar), reason: 'day ${p.number}');
       expect(p.moveLimit, p.par + defaultMoveSlack);
@@ -51,6 +51,45 @@ void main() {
       expect(b.isSolved, isTrue, reason: 'day ${p.number}');
       expect(p.solution.length, lessThanOrEqualTo(p.moveLimit));
     }
+  });
+
+  test('every weekday twist appears in the first week and practice puzzles are solvable', () {
+    final twists = {for (var i = 0; i < 7; i++) puzzleForDay(DateTime(2026, 11, 20).add(Duration(days: i))).twist};
+    expect(twists, containsAll(Twist.values));
+    for (var seed = 1; seed <= 15; seed++) {
+      final p = practicePuzzle(seed * 7919);
+      expect(p.isPractice, isTrue);
+      var b = p.start;
+      for (final m in p.solution) {
+        b = b.apply(m);
+      }
+      expect(b.isSolved, isTrue);
+    }
+  });
+
+  test('picky tube only accepts its color', () {
+    final b = BoardState([
+      [0, 1],
+      [1, 0],
+      [],
+    ], 2, rules: const Rules(pickyTube: 2, pickyColor: 0));
+    expect(b.canPour(0, 2), isFalse); // top is 1
+    expect(b.canPour(1, 2), isTrue); // top is 0
+  });
+
+  test('locked tube opens after N moves', () {
+    final b = BoardState([
+      [0, 1],
+      [1, 0],
+      [],
+      [],
+    ], 2, rules: const Rules(lockedTube: 1, unlockAfter: 1));
+    expect(b.canPick(1), isFalse);
+    expect(b.canPour(0, 1), isFalse);
+    final n = b.apply(const Move(0, 2));
+    expect(n.lockRemaining, 0);
+    expect(n.canPick(1), isTrue);
+    expect(n.canonicalKey == b.canonicalKey, isFalse);
   });
 
   test('pour rules', () {
@@ -72,11 +111,20 @@ void main() {
   test('share text', () {
     final p = puzzleForDay(DateTime(2026, 11, 20));
     final t = buildShareText(
-        puzzle: p, moves: p.par, stars: 3, attempts: 1, moveColors: List.generate(p.par, (i) => i % 4), streak: 3);
-    expect(t, startsWith('Daily Sort #1 ⭐⭐⭐\n${p.par}/${p.moveLimit} moves · par ${p.par} · 1st try · 🔥3\n🟥🟨🟩🟦🟥'));
+      puzzle: p,
+      moves: p.par,
+      stars: 3,
+      attempts: 1,
+      moveColors: List.generate(p.par, (i) => i % 4),
+      streak: 3,
+    );
+    expect(
+      t,
+      startsWith('Daily Sort #1 ⭐⭐⭐\n${p.par}/${p.moveLimit} moves · par ${p.par} · 1st try · 🔥3\n🟥🟨🟩🟦🟥'),
+    );
     expect(t, endsWith(shareUrl));
   });
 }
 
 const pinnedDay1 = '1301|2203|1120|3302||';
-const pinnedFingerprint = 164223875;
+const pinnedFingerprint = 924211694;

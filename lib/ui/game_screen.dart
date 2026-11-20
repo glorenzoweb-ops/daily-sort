@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../game/daily.dart';
 import '../game/game_controller.dart';
 import '../services/premium.dart';
+import '../services/sound.dart';
 import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
@@ -21,6 +22,7 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   GameController? _game;
   final _confetti = ConfettiController();
+  bool get _practice => _game?.puzzle.isPractice ?? false;
 
   @override
   void initState() {
@@ -39,16 +41,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A new day started while the app was in the background.
-    if (state == AppLifecycleState.resumed && _game != null &&
+    if (state == AppLifecycleState.resumed &&
+        _game != null &&
+        !_practice &&
         puzzleNumberFor(DateTime.now()) != _game!.puzzle.number) {
       _load();
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool practice = false}) async {
     // Let the loading frame paint before the (sub-second) puzzle generation.
     await Future<void>.delayed(const Duration(milliseconds: 30));
-    final puzzle = puzzleForDay(DateTime.now());
+    final puzzle = practice
+        ? practicePuzzle(DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF)
+        : puzzleForDay(DateTime.now());
     final game = GameController(puzzle, widget.storage);
     if (!mounted) return;
     setState(() {
@@ -63,6 +69,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _startPractice() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    _load(practice: true);
+  }
+
+  void _backToToday() => _load();
+
+  void _toggleSound() {
+    setState(() => Sounds.enabled = !Sounds.enabled);
+    widget.storage.setSound(Sounds.enabled);
+    if (Sounds.enabled) Sounds.note(4, volume: 0.5);
+  }
+
   void _onWin() {
     _confetti.burst();
     Future<void>.delayed(const Duration(milliseconds: 700), () {
@@ -74,7 +93,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final g = _game;
     if (g == null) return;
     showCozySheet(
-        context, ResultSheet(game: g, storage: widget.storage, premium: widget.premium, showResult: !statsOnly));
+      context,
+      ResultSheet(
+        game: g,
+        storage: widget.storage,
+        premium: widget.premium,
+        showResult: !statsOnly,
+        onPractice: _startPractice,
+      ),
+    );
   }
 
   @override
@@ -82,18 +109,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final g = _game;
     return Scaffold(
       backgroundColor: Palette.background,
-      body: Stack(children: [
-        const Positioned.fill(child: CustomPaint(painter: _PaperPainter())),
-        SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: g == null ? const _Loading() : _buildGame(g),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: CustomPaint(painter: _PaperPainter())),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: g == null ? const _Loading() : _buildGame(g),
+              ),
             ),
           ),
-        ),
-        Positioned.fill(child: Confetti(controller: _confetti)),
-      ]),
+          Positioned.fill(child: Confetti(controller: _confetti)),
+        ],
+      ),
     );
   }
 
@@ -102,39 +131,61 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       listenable: g,
       builder: (context, _) {
         final p = g.puzzle;
-        return Column(children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-            child: Row(children: [
-              _IconBtn(Icons.help_outline_rounded, 'How to play', () => showCozySheet(context, const HowToSheet())),
-              const Spacer(),
-              _IconBtn(Icons.bar_chart_rounded, 'Statistics',
-                  () => _openResults(statsOnly: g.status != GameStatus.won)),
-            ]),
-          ),
-          const SizedBox(height: 4),
-          const Text('DAILY SORT',
-              style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Palette.ink, letterSpacing: 1.5)),
-          const SizedBox(height: 2),
-          Text('#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft)),
-          const SizedBox(height: 18),
-          _MovesPill(used: g.movesUsed, limit: p.moveLimit),
-          const SizedBox(height: 8),
-          Text(g.status == GameStatus.won ? 'Solved!  ·  par ${p.par}' : 'Par ${p.par}  ·  ${g.movesLeft} left',
-              style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: g.movesLeft <= 2 && g.status == GameStatus.playing ? Palette.danger : Palette.inkSoft)),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: BoardView(game: g, onWinAnimationDone: _onWin),
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+              child: Row(
+                children: [
+                  _IconBtn(Icons.help_outline_rounded, 'How to play', () => showCozySheet(context, const HowToSheet())),
+                  _IconBtn(Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded, 'Sound', _toggleSound),
+                  const Spacer(),
+                  if (p.isPractice)
+                    _IconBtn(Icons.today_rounded, "Back to today's puzzle", _backToToday)
+                  else
+                    _IconBtn(Icons.all_inclusive_rounded, 'Practice puzzles', _startPractice),
+                  _IconBtn(
+                    Icons.bar_chart_rounded,
+                    'Statistics',
+                    () => _openResults(statsOnly: g.status != GameStatus.won),
+                  ),
+                ],
+              ),
             ),
-          ),
-          _BottomBar(game: g, onResults: _openResults),
-          const SizedBox(height: 16),
-        ]);
+            const SizedBox(height: 4),
+            Text(
+              p.isPractice ? 'PRACTICE' : 'DAILY SORT',
+              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Palette.ink, letterSpacing: 1.5),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              p.isPractice
+                  ? 'Unlimited puzzles  ·  ${difficultyLabel(p.difficulty)}'
+                  : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+            ),
+            const SizedBox(height: 18),
+            _MovesPill(used: g.movesUsed, limit: p.moveLimit),
+            if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
+            const SizedBox(height: 8),
+            Text(
+              g.status == GameStatus.won ? 'Solved!  ·  par ${p.par}' : 'Par ${p.par}  ·  ${g.movesLeft} left',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: g.movesLeft <= 2 && g.status == GameStatus.playing ? Palette.danger : Palette.inkSoft,
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: BoardView(key: ObjectKey(g), game: g, onWinAnimationDone: _onWin),
+              ),
+            ),
+            _BottomBar(game: g, onResults: _openResults, onNext: _startPractice),
+            const SizedBox(height: 16),
+          ],
+        );
       },
     );
   }
@@ -149,21 +200,31 @@ class _MovesPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
       decoration: BoxDecoration(color: Palette.ink, borderRadius: BorderRadius.circular(30)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Text('MOVES  ',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1)),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          transitionBuilder: (child, a) => ScaleTransition(
-            scale: Tween(begin: 1.5, end: 1.0).animate(CurvedAnimation(parent: a, curve: Curves.easeOutBack)),
-            child: FadeTransition(opacity: a, child: child),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'MOVES  ',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1),
           ),
-          child: Text('$used',
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            transitionBuilder: (child, a) => ScaleTransition(
+              scale: Tween(begin: 1.5, end: 1.0).animate(CurvedAnimation(parent: a, curve: Curves.easeOutBack)),
+              child: FadeTransition(opacity: a, child: child),
+            ),
+            child: Text(
+              '$used',
               key: ValueKey(used),
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Palette.gold)),
-        ),
-        Text(' / $limit', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-      ]),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Palette.gold),
+            ),
+          ),
+          Text(
+            ' / $limit',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -171,7 +232,8 @@ class _MovesPill extends StatelessWidget {
 class _BottomBar extends StatelessWidget {
   final GameController game;
   final VoidCallback onResults;
-  const _BottomBar({required this.game, required this.onResults});
+  final VoidCallback onNext;
+  const _BottomBar({required this.game, required this.onResults, required this.onNext});
 
   @override
   Widget build(BuildContext context) {
@@ -179,36 +241,68 @@ class _BottomBar extends StatelessWidget {
     Widget child;
     switch (g.status) {
       case GameStatus.won:
-        child = FilledButton.icon(
+        final practice = g.puzzle.isPractice;
+        child = Row(
           key: const ValueKey('won'),
-          style: FilledButton.styleFrom(
-            backgroundColor: Palette.gold,
-            foregroundColor: Palette.ink,
-            minimumSize: const Size(220, 56),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-          ),
-          onPressed: onResults,
-          icon: const Icon(Icons.ios_share_rounded),
-          label: const Text('Share result'),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: Palette.gold,
+                foregroundColor: Palette.ink,
+                minimumSize: const Size(170, 56),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+              onPressed: practice ? onNext : onResults,
+              icon: Icon(practice ? Icons.arrow_forward_rounded : Icons.brush_rounded),
+              label: Text(practice ? 'Next puzzle' : 'My painting'),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Palette.ink,
+                minimumSize: const Size(120, 56),
+                side: const BorderSide(color: Palette.tubeStroke, width: 2),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+              onPressed: practice ? onResults : onNext,
+              icon: Icon(practice ? Icons.brush_rounded : Icons.all_inclusive_rounded),
+              label: Text(practice ? 'Painting' : 'More'),
+            ),
+          ],
         );
       case GameStatus.outOfMoves:
-        child = Column(key: const ValueKey('out'), mainAxisSize: MainAxisSize.min, children: [
-          const Text('Out of moves!',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Palette.danger)),
-          const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            _RoundAction(Icons.undo_rounded, 'Undo', g.undo),
-            const SizedBox(width: 18),
-            _RoundAction(Icons.refresh_rounded, 'Try again', g.restart, primary: true),
-          ]),
-        ]);
+        child = Column(
+          key: const ValueKey('out'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Out of moves!',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Palette.danger),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _RoundAction(Icons.undo_rounded, 'Undo', g.undo),
+                const SizedBox(width: 18),
+                _RoundAction(Icons.refresh_rounded, 'Try again', g.restart, primary: true),
+              ],
+            ),
+          ],
+        );
       case GameStatus.playing:
-        child = Row(key: const ValueKey('play'), mainAxisAlignment: MainAxisAlignment.center, children: [
-          _RoundAction(Icons.undo_rounded, 'Undo', g.canUndo ? g.undo : null),
-          const SizedBox(width: 18),
-          _RoundAction(Icons.refresh_rounded, 'Restart', g.history.isNotEmpty ? g.restart : null),
-        ]);
+        child = Row(
+          key: const ValueKey('play'),
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _RoundAction(Icons.undo_rounded, 'Undo', g.canUndo ? g.undo : null),
+            const SizedBox(width: 18),
+            _RoundAction(Icons.refresh_rounded, 'Restart', g.history.isNotEmpty ? g.restart : null),
+          ],
+        );
     }
     return SizedBox(
       height: 110,
@@ -216,9 +310,12 @@ class _BottomBar extends StatelessWidget {
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 250),
           transitionBuilder: (c, a) => FadeTransition(
-              opacity: a,
-              child: SlideTransition(
-                  position: Tween(begin: const Offset(0, 0.2), end: Offset.zero).animate(a), child: c)),
+            opacity: a,
+            child: SlideTransition(
+              position: Tween(begin: const Offset(0, 0.2), end: Offset.zero).animate(a),
+              child: c,
+            ),
+          ),
           child: child,
         ),
       ),
@@ -238,20 +335,29 @@ class _RoundAction extends StatelessWidget {
     final enabled = onTap != null;
     return Opacity(
       opacity: enabled ? 1 : 0.4,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Material(
-          color: primary ? Palette.ink : Colors.white,
-          shape: const CircleBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: SizedBox(
-                width: 58, height: 58, child: Icon(icon, size: 28, color: primary ? Colors.white : Palette.ink)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: primary ? Palette.ink : Colors.white,
+            shape: const CircleBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: SizedBox(
+                width: 58,
+                height: 58,
+                child: Icon(icon, size: 28, color: primary ? Colors.white : Palette.ink),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.inkSoft)),
-      ]),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -263,17 +369,22 @@ class _IconBtn extends StatelessWidget {
   const _IconBtn(this.icon, this.tooltip, this.onTap);
 
   @override
-  Widget build(BuildContext context) =>
-      IconButton(onPressed: onTap, tooltip: tooltip, icon: Icon(icon, size: 28, color: Palette.ink));
+  Widget build(BuildContext context) => IconButton(
+    onPressed: onTap,
+    tooltip: tooltip,
+    icon: Icon(icon, size: 28, color: Palette.ink),
+  );
 }
 
 class _Loading extends StatelessWidget {
   const _Loading();
   @override
   Widget build(BuildContext context) => const Center(
-        child: Text('Mixing today\'s colors…',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft)),
-      );
+    child: Text(
+      'Mixing today\'s colors…',
+      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+    ),
+  );
 }
 
 /// Faint ruled-paper background.
@@ -292,3 +403,38 @@ class _PaperPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter old) => false;
 }
+
+/// Explains today's rule twist in one line.
+class TwistChip extends StatelessWidget {
+  final DailyPuzzle puzzle;
+  const TwistChip({super.key, required this.puzzle});
+
+  @override
+  Widget build(BuildContext context) {
+    final b = puzzle.start;
+    final (String icon, String text, Color color) = switch (puzzle.twist) {
+      Twist.pickyTube => (
+        '🎯',
+        'Picky tube: only takes ${colorName(b.rules.pickyColor)}',
+        Palette.balls[b.rules.pickyColor],
+      ),
+      Twist.lockedTube => ('🔒', 'Locked tube opens after ${b.rules.unlockAfter} moves', Palette.ink),
+      Twist.tallTubes => ('📏', 'Tall tubes: 5 balls each', Palette.ink),
+      Twist.classic => ('', '', Palette.ink),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.6), width: 2),
+      ),
+      child: Text(
+        '$icon  $text',
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
+      ),
+    );
+  }
+}
+
+String colorName(int c) => const ['red', 'yellow', 'green', 'blue', 'purple', 'orange'][c % 6];

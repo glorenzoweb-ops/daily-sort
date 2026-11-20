@@ -39,6 +39,15 @@ class Ignored extends TapOutcome {
   const Ignored();
 }
 
+class PourInfo {
+  final Move move;
+  final int color;
+  final int count;
+  final int destSlot; // height the first ball landed at
+  final bool completedTube;
+  const PourInfo(this.move, this.color, this.count, this.destSlot, this.completedTube);
+}
+
 class GameController extends ChangeNotifier {
   final DailyPuzzle puzzle;
   final Storage storage;
@@ -53,6 +62,7 @@ class GameController extends ChangeNotifier {
 
   GameController(this.puzzle, this.storage) {
     board = puzzle.start;
+    if (puzzle.isPractice) return; // practice is never saved
     _record = storage.day(puzzle.number);
     final r = _record;
     if (r != null) {
@@ -83,7 +93,7 @@ class GameController extends ChangeNotifier {
     if (status != GameStatus.playing) return const Ignored();
     final sel = selected;
     if (sel == null) {
-      if (board.tubes[tube].isEmpty || board.isTubeComplete(tube)) {
+      if (!board.canPick(tube)) {
         return Invalid(tube);
       }
       selected = tube;
@@ -98,7 +108,7 @@ class GameController extends ChangeNotifier {
     final count = board.pourCount(sel, tube);
     if (count == 0) {
       // Tapping another pickable tube switches the selection.
-      if (board.tubes[tube].isNotEmpty && !board.isTubeComplete(tube)) {
+      if (board.canPick(tube)) {
         selected = tube;
         notifyListeners();
         return Selected(tube);
@@ -161,7 +171,22 @@ class GameController extends ChangeNotifier {
     }
   }
 
+  /// Every pour so far, with what the song and painting need.
+  List<PourInfo> get pours {
+    final out = <PourInfo>[];
+    var b = puzzle.start;
+    for (final m in history) {
+      final n = b.pourCount(m.from, m.to);
+      final color = b.topColor(m.from)!;
+      final slot = b.tubes[m.to].length;
+      b = b.apply(m);
+      out.add(PourInfo(m, color, n, slot, b.isTubeComplete(m.to)));
+    }
+    return out;
+  }
+
   void _persist() {
+    if (puzzle.isPractice) return;
     final r = _record ??= DayRecord();
     r.moves = List.of(history);
     r.attempts = attempts;
@@ -169,6 +194,10 @@ class GameController extends ChangeNotifier {
   }
 
   void _recordWin() {
+    if (puzzle.isPractice) {
+      storage.addPracticeSolve();
+      return;
+    }
     final r = _record ??= DayRecord();
     if (r.solved) return;
     r
