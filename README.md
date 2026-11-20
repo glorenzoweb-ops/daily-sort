@@ -1,1 +1,74 @@
-# daily-sort
+# Daily Sort
+
+One color-sort puzzle a day, the same for everyone. Sort the balls within the move limit, hit par for three stars, and share a Wordle-style emoji card.
+
+Built with Flutter 3.50 for web, Android and iOS.
+
+## Run it
+
+```bash
+git clone https://github.com/glorenzoweb-ops/daily-sort.git
+cd daily-sort
+flutter pub get
+
+flutter run -d chrome        # web
+flutter run -d <android-id>  # Android emulator or phone (see `flutter devices`)
+open ios/Runner.xcworkspace  # iOS: set your Team under Signing, then
+flutter run -d <iphone-id>   # run on a simulator or iPhone
+```
+
+Run the tests (they prove the next 400 daily puzzles are solvable within their move limit):
+
+```bash
+flutter test
+```
+
+## Put the web version live (GitHub Pages, free)
+
+1. The repository must be **public** for free GitHub Pages (Settings → General → Danger Zone → Change visibility), or you need a paid plan.
+2. Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+3. Merge to `main` (or run the "Deploy web to GitHub Pages" workflow by hand under Actions).
+
+The site goes live at **https://glorenzoweb-ops.github.io/daily-sort/** in about 3 minutes. Every push to `main` redeploys.
+
+If you rename the repo or use a custom domain, update `shareUrl` in `lib/services/share.dart`. For a custom domain at the root, build with `--base-href /` instead.
+
+## Ship to Android (Google Play)
+
+1. Change the app id if you want (`applicationId` in `android/app/build.gradle.kts`, now `com.glorenzoweb.daily_sort`). It can't change after the first upload.
+2. Create an upload keystore and signing config: https://docs.flutter.dev/deployment/android#sign-the-app
+3. `flutter build appbundle` and upload `build/app/outputs/bundle/release/app-release.aab` to the Play Console.
+4. New personal accounts must run a closed test with 12+ testers for 14 days before production. Start that early.
+
+## Ship to iOS (App Store)
+
+1. In Xcode, set the bundle id (now `com.glorenzoweb.dailySort`) and your Team.
+2. `flutter build ipa`, then upload with Xcode Organizer or Transporter, and test through TestFlight.
+
+## How it works
+
+| Path | What it does |
+| --- | --- |
+| `lib/game/rng.dart` | 32-bit PRNG that gives identical numbers on the Dart VM and on the web, so everyone gets the same puzzle |
+| `lib/game/daily.dart` | Turns a date into a puzzle: seeds the PRNG with the date, deals balls, and keeps re-dealing until the optimal solution length (par) is in the day's range. Move limit = par + 2 |
+| `lib/game/solver.dart` | Breadth-first solver that finds the optimal solution. Every puzzle ships with a proven solution |
+| `lib/game/board.dart` | Pour rules |
+| `lib/game/game_controller.dart` | Game state, undo, restart, win detection, stats and streaks |
+| `lib/ui/board_view.dart` | Custom-painted board with lift, arc-and-drop pours, squash, shake, glow and win bounce |
+| `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
+| `lib/services/premium.dart` | Hook for the future Daily Sort+ subscription |
+
+Puzzle #1 is Nov 20, 2026. Mon/Tue are Easy (par 7–9), Wed–Fri Medium (par 10–13), weekends Tricky (5 colors, par 12–16).
+
+**Don't change the generator** (`rng.dart`, `daily.dart`, `board.dart` move rules) once people are playing: every past and future puzzle would change. The test `first 60 puzzles match the pinned fingerprint` fails if you do.
+
+## Adding Daily Sort+ later ($2.99/mo)
+
+Payments aren't wired in. When you're ready:
+
+1. Add RevenueCat (`purchases_flutter`) and create the product in App Store Connect and Play Console. RevenueCat also handles Stripe for web.
+2. Write a `PremiumService` subclass backed by RevenueCat and swap it in `lib/main.dart` (replace `ComingSoonPremium`).
+3. Gate features with `premium.isUnlocked(PremiumFeature.archive | hints | hardMode)`:
+   - **Archive:** `puzzleForDay(dayForNumber(n))` already returns any past puzzle.
+   - **Hints:** `solveOptimal(game.board).first` is the best next move from any position.
+   - **Hard mode:** move limit = par (`defaultMoveSlack = 0`).
