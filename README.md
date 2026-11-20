@@ -72,6 +72,8 @@ Puzzle #1 is Nov 20, 2026. The weekly rhythm (`weekdaySpecs` in `lib/game/daily.
 
 Every pour plays a note (`lib/services/sound.dart`, synthesized, no audio files) and each solve is drawn as a painting (`lib/ui/solve_art.dart`) that players share as an image. The leaf button opens Unwind: endless 4-color puzzles with no move limit, a breathing glow (10 s cycle, about 6 breaths a minute) and optional soundscapes (rain, waves, fireplace, night), all synthesized in `lib/services/sound/`. Unwind doesn't count for stats.
 
+Soundscapes react to play: they fade down to 40% as tubes complete, a wind chime tuned to the pour notes rings for each finished tube, and birdsong plays on the solve. "Calm music" in the sound panel adds a slow pad and a kalimba that wanders over the same pentatonic notes, so it never repeats the same way (`lib/services/sound/music.dart`).
+
 **Don't change the generator** (`rng.dart`, `daily.dart`, `board.dart` move rules) once people are playing: every past and future puzzle would change. The test `first 60 puzzles match the pinned fingerprint` fails if you do.
 
 ## Adding Daily Sort+ later ($2.99/mo)

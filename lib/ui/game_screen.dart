@@ -146,7 +146,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 children: [
                   _IconBtn(Icons.help_outline_rounded, 'How to play', () => showCozySheet(context, const HowToSheet())),
                   _IconBtn(
-                    Sounds.ambience != Ambience.off
+                    Sounds.ambience != Ambience.off || Sounds.music
                         ? Icons.music_note_rounded
                         : (Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
                     'Sound and soundscapes',
@@ -488,7 +488,7 @@ class _SoundSheetState extends State<SoundSheet> {
         ),
         const SizedBox(height: 6),
         const Text(
-          'Pick a soundscape to play while you sort.',
+          'Pick a soundscape. It softens as your tubes fill.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
         ),
@@ -506,6 +506,25 @@ class _SoundSheetState extends State<SoundSheet> {
           ],
         ),
         const SizedBox(height: 14),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+          title: const Text(
+            'Calm music',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
+          ),
+          subtitle: const Text(
+            'A soft pad and a wandering kalimba, never the same twice',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+          ),
+          value: Sounds.music,
+          activeThumbColor: Palette.gold,
+          onChanged: (v) {
+            Sounds.setMusic(v);
+            widget.storage.setMusic(v);
+            setState(() {});
+            widget.onChanged();
+          },
+        ),
         SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
           title: const Text(

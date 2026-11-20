@@ -17,6 +17,7 @@ Future<void> main() async {
   Haptics.enabled = storage.hapticsOn;
   Sounds.enabled = storage.soundOn;
   Sounds.ambience = Ambience.values.asNameMap()[storage.ambience] ?? Ambience.off;
+  Sounds.music = storage.musicOn;
   Sounds.init(); // not awaited: the game never waits on audio
   // Swap for a RevenueCat-backed implementation when payments go live.
   final premium = ComingSoonPremium();
