@@ -12,30 +12,25 @@ class DayRecord {
   int? solvedMoves;
   List<int> solvedColors; // color of each move in the winning run (for share)
 
-  DayRecord({
-    List<Move>? moves,
-    this.attempts = 1,
-    this.solved = false,
-    this.solvedMoves,
-    List<int>? solvedColors,
-  })  : moves = moves ?? [],
-        solvedColors = solvedColors ?? [];
+  DayRecord({List<Move>? moves, this.attempts = 1, this.solved = false, this.solvedMoves, List<int>? solvedColors})
+    : moves = moves ?? [],
+      solvedColors = solvedColors ?? [];
 
   Map<String, dynamic> toJson() => {
-        'moves': moves.map((m) => m.toJson()).toList(),
-        'attempts': attempts,
-        'solved': solved,
-        'solvedMoves': solvedMoves,
-        'solvedColors': solvedColors,
-      };
+    'moves': moves.map((m) => m.toJson()).toList(),
+    'attempts': attempts,
+    'solved': solved,
+    'solvedMoves': solvedMoves,
+    'solvedColors': solvedColors,
+  };
 
   static DayRecord fromJson(Map<String, dynamic> j) => DayRecord(
-        moves: (j['moves'] as List).map((m) => Move.fromJson(m as List)).toList(),
-        attempts: j['attempts'] as int? ?? 1,
-        solved: j['solved'] as bool? ?? false,
-        solvedMoves: j['solvedMoves'] as int?,
-        solvedColors: (j['solvedColors'] as List?)?.cast<int>() ?? [],
-      );
+    moves: (j['moves'] as List).map((m) => Move.fromJson(m as List)).toList(),
+    attempts: j['attempts'] as int? ?? 1,
+    solved: j['solved'] as bool? ?? false,
+    solvedMoves: j['solvedMoves'] as int?,
+    solvedColors: (j['solvedColors'] as List?)?.cast<int>() ?? [],
+  );
 }
 
 class Stats {
@@ -59,22 +54,22 @@ class Stats {
   int currentStreak(int today) => lastSolvedNumber >= today - 1 ? streak : 0;
 
   Map<String, dynamic> toJson() => {
-        'played': played,
-        'solved': solved,
-        'streak': streak,
-        'maxStreak': maxStreak,
-        'lastSolvedNumber': lastSolvedNumber,
-        'stars': stars.map((k, v) => MapEntry('$k', v)),
-      };
+    'played': played,
+    'solved': solved,
+    'streak': streak,
+    'maxStreak': maxStreak,
+    'lastSolvedNumber': lastSolvedNumber,
+    'stars': stars.map((k, v) => MapEntry('$k', v)),
+  };
 
   static Stats fromJson(Map<String, dynamic> j) => Stats(
-        played: j['played'] as int? ?? 0,
-        solved: j['solved'] as int? ?? 0,
-        streak: j['streak'] as int? ?? 0,
-        maxStreak: j['maxStreak'] as int? ?? 0,
-        lastSolvedNumber: j['lastSolvedNumber'] as int? ?? 0,
-        stars: ((j['stars'] as Map?) ?? {}).map((k, v) => MapEntry(int.parse(k as String), v as int)),
-      );
+    played: j['played'] as int? ?? 0,
+    solved: j['solved'] as int? ?? 0,
+    streak: j['streak'] as int? ?? 0,
+    maxStreak: j['maxStreak'] as int? ?? 0,
+    lastSolvedNumber: j['lastSolvedNumber'] as int? ?? 0,
+    stars: ((j['stars'] as Map?) ?? {}).map((k, v) => MapEntry(int.parse(k as String), v as int)),
+  );
 }
 
 /// Thin wrapper over SharedPreferences (localStorage on web).
@@ -94,8 +89,7 @@ class Storage {
     }
   }
 
-  Future<void> saveDay(int number, DayRecord r) =>
-      _prefs.setString('day_$number', jsonEncode(r.toJson()));
+  Future<void> saveDay(int number, DayRecord r) => _prefs.setString('day_$number', jsonEncode(r.toJson()));
 
   Stats get stats {
     final raw = _prefs.getString('stats');
@@ -111,6 +105,15 @@ class Storage {
 
   bool get seenHowTo => _prefs.getBool('seenHowTo') ?? false;
   Future<void> setSeenHowTo() => _prefs.setBool('seenHowTo', true);
+
+  int get practiceSolved => _prefs.getInt('practiceSolved') ?? 0;
+  Future<void> addPracticeSolve() => _prefs.setInt('practiceSolved', practiceSolved + 1);
+
+  bool get soundOn => _prefs.getBool('sound') ?? true;
+  Future<void> setSound(bool v) => _prefs.setBool('sound', v);
+
+  bool twistSeen(String twist) => _prefs.getBool('twistSeen_$twist') ?? false;
+  Future<void> setTwistSeen(String twist) => _prefs.setBool('twistSeen_$twist', true);
 
   bool get hapticsOn => _prefs.getBool('haptics') ?? true;
   Future<void> setHaptics(bool v) => _prefs.setBool('haptics', v);

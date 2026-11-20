@@ -58,7 +58,19 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
 | `lib/services/premium.dart` | Hook for the future Daily Sort+ subscription |
 
-Puzzle #1 is Nov 20, 2026. Mon/Tue are Easy (par 7–9), Wed–Fri Medium (par 10–13), weekends Tricky (5 colors, par 12–16).
+Puzzle #1 is Nov 20, 2026. The weekly rhythm (`weekdaySpecs` in `lib/game/daily.dart`):
+
+| Day | Puzzle |
+| --- | --- |
+| Mon | Classic, easy |
+| Tue | Tall tubes (5 balls each) |
+| Wed | Picky tube (only takes one color) |
+| Thu | Locked tube (opens after 3 moves) |
+| Fri | Classic, medium |
+| Sat | Classic, 5 colors |
+| Sun | Picky tube, 5 colors |
+
+Every pour plays a note (`lib/services/sound.dart`, synthesized, no audio files) and each solve is drawn as a painting (`lib/ui/solve_art.dart`) that players share as an image. The ♾ button opens unlimited practice puzzles, which don't count for stats.
 
 **Don't change the generator** (`rng.dart`, `daily.dart`, `board.dart` move rules) once people are playing: every past and future puzzle would change. The test `first 60 puzzles match the pinned fingerprint` fails if you do.
 

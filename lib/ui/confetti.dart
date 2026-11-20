@@ -25,8 +25,7 @@ class _Piece {
 }
 
 class _ConfettiState extends State<Confetti> with SingleTickerProviderStateMixin {
-  late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 2600));
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 2600));
   List<_Piece> _pieces = const [];
   final _rnd = math.Random();
 
@@ -93,10 +92,12 @@ class _ConfettiPainter extends CustomPainter {
         canvas.drawCircle(Offset.zero, p.size / 2.4, paint);
       } else {
         canvas.drawRRect(
-            RRect.fromRectAndRadius(
-                Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.5),
-                const Radius.circular(2)),
-            paint);
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.5),
+            const Radius.circular(2),
+          ),
+          paint,
+        );
       }
       canvas.restore();
     }

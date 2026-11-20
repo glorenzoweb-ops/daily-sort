@@ -70,3 +70,22 @@ Future<ShareOutcome> shareResult(String text) async {
     }
   }
 }
+
+/// Shares the solve painting as an image, with the text result as caption.
+/// Falls back to sharing text only.
+Future<ShareOutcome> shareImage(Uint8List png, String fileName, String text) async {
+  try {
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile.fromData(png, mimeType: 'image/png', name: fileName)],
+        fileNameOverrides: [fileName],
+        text: text,
+        mailToFallbackEnabled: false,
+        downloadFallbackEnabled: true,
+      ),
+    );
+    return ShareOutcome.shared;
+  } catch (_) {
+    return shareResult(text);
+  }
+}

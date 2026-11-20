@@ -11,39 +11,42 @@ const int defaultMoveSlack = 2;
 
 enum Difficulty { easy, medium, hard }
 
-class DifficultySpec {
+/// The rule twist a puzzle uses. Each weekday has its own.
+enum Twist { classic, tallTubes, pickyTube, lockedTube }
+
+class PuzzleSpec {
+  final Difficulty difficulty;
+  final Twist twist;
   final int colors;
   final int emptyTubes;
   final int capacity;
   final int minPar;
   final int maxPar;
-  const DifficultySpec(this.colors, this.emptyTubes, this.capacity, this.minPar, this.maxPar);
+  const PuzzleSpec(this.difficulty, this.twist, this.colors, this.emptyTubes, this.capacity, this.minPar, this.maxPar);
 }
 
-const Map<Difficulty, DifficultySpec> difficultySpecs = {
-  Difficulty.easy: DifficultySpec(4, 2, 4, 7, 9),
-  Difficulty.medium: DifficultySpec(4, 2, 4, 10, 13),
-  Difficulty.hard: DifficultySpec(5, 2, 4, 12, 16),
+/// How many moves the locked tube stays shut.
+const int lockMoves = 3;
+
+/// The weekly rhythm. Classic Mon/Fri/Sat; a twist on the other days.
+/// Changing an entry changes every future puzzle on that weekday.
+const Map<int, PuzzleSpec> weekdaySpecs = {
+  DateTime.monday: PuzzleSpec(Difficulty.easy, Twist.classic, 4, 2, 4, 7, 9),
+  DateTime.tuesday: PuzzleSpec(Difficulty.medium, Twist.tallTubes, 4, 2, 5, 9, 13),
+  DateTime.wednesday: PuzzleSpec(Difficulty.medium, Twist.pickyTube, 4, 2, 4, 9, 13),
+  DateTime.thursday: PuzzleSpec(Difficulty.medium, Twist.lockedTube, 4, 2, 4, 9, 13),
+  DateTime.friday: PuzzleSpec(Difficulty.medium, Twist.classic, 4, 2, 4, 10, 13),
+  DateTime.saturday: PuzzleSpec(Difficulty.hard, Twist.classic, 5, 2, 4, 12, 16),
+  DateTime.sunday: PuzzleSpec(Difficulty.hard, Twist.pickyTube, 5, 2, 4, 12, 16),
 };
 
-/// Mon/Tue easy, Wed/Thu/Fri medium, weekend hard (like crossword weeks).
-Difficulty difficultyFor(DateTime day) {
-  switch (day.weekday) {
-    case DateTime.monday:
-    case DateTime.tuesday:
-      return Difficulty.easy;
-    case DateTime.saturday:
-    case DateTime.sunday:
-      return Difficulty.hard;
-    default:
-      return Difficulty.medium;
-  }
-}
+PuzzleSpec specFor(DateTime day) => weekdaySpecs[day.weekday]!;
 
 class DailyPuzzle {
+  /// Puzzle number; 0 for practice puzzles.
   final int number;
   final DateTime day; // date only, UTC midnight
-  final Difficulty difficulty;
+  final PuzzleSpec spec;
   final BoardState start;
   final List<Move> solution; // a shortest solution
   final int par;
@@ -52,13 +55,16 @@ class DailyPuzzle {
   DailyPuzzle({
     required this.number,
     required this.day,
-    required this.difficulty,
+    required this.spec,
     required this.start,
     required this.solution,
     required this.moveLimit,
   }) : par = solution.length;
 
-  int get colors => difficultySpecs[difficulty]!.colors;
+  bool get isPractice => number == 0;
+  Difficulty get difficulty => spec.difficulty;
+  Twist get twist => spec.twist;
+  int get colors => spec.colors;
 }
 
 /// Strips the time and time zone: a "day" is the player's local calendar day,
@@ -75,13 +81,23 @@ final Map<int, DailyPuzzle> _cache = {};
 DailyPuzzle puzzleForDay(DateTime anyTimeThatDay) {
   final day = dayOf(anyTimeThatDay);
   final number = puzzleNumberFor(day);
-  return _cache[number] ??= _generate(day, number);
+  return _cache[number] ??= generatePuzzle(
+    seed: day.year * 10000 + day.month * 100 + day.day,
+    spec: specFor(day),
+    number: number,
+    day: day,
+  );
 }
 
-DailyPuzzle _generate(DateTime day, int number) {
-  final difficulty = difficultyFor(day);
-  final spec = difficultySpecs[difficulty]!;
-  final rng = SeededRng(day.year * 10000 + day.month * 100 + day.day);
+/// An endless practice puzzle. Doesn't count for stats or streaks.
+DailyPuzzle practicePuzzle(int seed) {
+  final specs = weekdaySpecs.values.toList();
+  final spec = specs[SeededRng(seed ^ 0x51ed).nextInt(specs.length)];
+  return generatePuzzle(seed: seed, spec: spec, number: 0, day: dayOf(DateTime.now()));
+}
+
+DailyPuzzle generatePuzzle({required int seed, required PuzzleSpec spec, required int number, required DateTime day}) {
+  final rng = SeededRng(seed);
 
   BoardState? best;
   List<Move>? bestSolution;
@@ -97,7 +113,7 @@ DailyPuzzle _generate(DateTime day, int number) {
       return DailyPuzzle(
         number: number,
         day: day,
-        difficulty: difficulty,
+        spec: spec,
         start: board,
         solution: sol,
         moveLimit: par + defaultMoveSlack,
@@ -114,14 +130,14 @@ DailyPuzzle _generate(DateTime day, int number) {
   return DailyPuzzle(
     number: number,
     day: day,
-    difficulty: difficulty,
+    spec: spec,
     start: best!,
     solution: bestSolution!,
     moveLimit: bestSolution.length + defaultMoveSlack,
   );
 }
 
-BoardState? _deal(SeededRng rng, DifficultySpec spec) {
+BoardState? _deal(SeededRng rng, PuzzleSpec spec) {
   final balls = <int>[
     for (var c = 0; c < spec.colors; c++)
       for (var k = 0; k < spec.capacity; k++) c,
@@ -131,9 +147,21 @@ BoardState? _deal(SeededRng rng, DifficultySpec spec) {
     for (var t = 0; t < spec.colors; t++) balls.sublist(t * spec.capacity, (t + 1) * spec.capacity),
     for (var e = 0; e < spec.emptyTubes; e++) <int>[],
   ];
-  final board = BoardState(tubes, spec.capacity);
-  // Reject boards where a tube starts complete or has 3+ of a color on top
-  // (too easy, looks unshuffled).
+  // Classic draws nothing extra from the RNG, so classic puzzles stay
+  // identical to the ones generated before twists existed.
+  var rules = Rules.none;
+  switch (spec.twist) {
+    case Twist.classic:
+    case Twist.tallTubes:
+      break;
+    case Twist.pickyTube:
+      rules = Rules(pickyTube: spec.colors, pickyColor: rng.nextInt(spec.colors));
+    case Twist.lockedTube:
+      rules = Rules(lockedTube: rng.nextInt(spec.colors), unlockAfter: lockMoves);
+  }
+  final board = BoardState(tubes, spec.capacity, rules: rules);
+  // Reject boards where a tube starts (nearly) complete: too easy, looks
+  // unshuffled.
   for (var i = 0; i < spec.colors; i++) {
     if (board.topRun(i) >= spec.capacity - 1) return null;
   }

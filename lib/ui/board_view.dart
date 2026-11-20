@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../game/board.dart';
 import '../game/game_controller.dart';
 import '../services/feedback.dart';
+import '../services/sound.dart';
 import 'palette.dart';
 
 /// Geometry for laying tubes out in one row, sized to the available width.
@@ -55,15 +56,11 @@ class BoardView extends StatefulWidget {
 }
 
 class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
-  late final AnimationController _lift =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 170));
+  late final AnimationController _lift = AnimationController(vsync: this, duration: const Duration(milliseconds: 170));
   late final AnimationController _pour = AnimationController(vsync: this);
-  late final AnimationController _shake =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 360));
-  late final AnimationController _glow =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-  late final AnimationController _win =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
+  late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 360));
+  late final AnimationController _glow = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
 
   int? _liftTube; // tube whose top ball is lifted (or dropping back)
   Poured? _pending;
@@ -120,8 +117,14 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     Haptics.land();
     if (p.completedTube) {
       Haptics.tubeComplete();
+      Sounds.tubeComplete(p.color);
       _glowTube = p.move.to;
       _glow.forward(from: 0);
+    }
+    if (p.before.lockRemaining == 1) {
+      // The locked tube just opened.
+      Haptics.tubeComplete();
+      Sounds.note(7, volume: 0.5);
     }
     if (p.won) {
       Haptics.win();
@@ -154,6 +157,8 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
         Haptics.select();
         _lift.reverse();
       case Poured():
+        // Play the note right away: browsers only allow audio in a tap.
+        Sounds.pour(out.color, out.before.tubes[out.move.to].length);
         _pending = out;
         final ms = 330 + 70 * (out.count - 1);
         _pour.duration = Duration(milliseconds: ms);
@@ -172,34 +177,36 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final game = widget.game;
-    return LayoutBuilder(builder: (context, c) {
-      final layout = BoardLayout(c.biggest, game.board.tubeCount, game.board.capacity);
-      _layout = layout;
-      return GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: (d) => _onTap(d.localPosition),
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_lift, _pour, _shake, _glow, _win]),
-          builder: (context, _) => CustomPaint(
-            size: c.biggest,
-            painter: _BoardPainter(
-              layout: layout,
-              board: _pending?.before ?? game.board,
-              pending: _pending,
-              pourT: _pour.value,
-              liftTube: _liftTube,
-              liftT: Curves.easeOutBack.transform(_lift.value.clamp(0.0, 1.0)),
-              shakeTube: _shakeTube,
-              shakeT: _shake.value,
-              glowTube: _glowTube,
-              glowT: _glow.value,
-              winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
-              won: game.status == GameStatus.won && _pending == null,
+    return LayoutBuilder(
+      builder: (context, c) {
+        final layout = BoardLayout(c.biggest, game.board.tubeCount, game.board.capacity);
+        _layout = layout;
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (d) => _onTap(d.localPosition),
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_lift, _pour, _shake, _glow, _win]),
+            builder: (context, _) => CustomPaint(
+              size: c.biggest,
+              painter: _BoardPainter(
+                layout: layout,
+                board: _pending?.before ?? game.board,
+                pending: _pending,
+                pourT: _pour.value,
+                liftTube: _liftTube,
+                liftT: Curves.easeOutBack.transform(_lift.value.clamp(0.0, 1.0)),
+                shakeTube: _shakeTube,
+                shakeT: _shake.value,
+                glowTube: _glowTube,
+                glowT: _glow.value,
+                winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
+                won: game.status == GameStatus.won && _pending == null,
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   }
 }
 
@@ -255,6 +262,7 @@ class _BoardPainter extends CustomPainter {
       if (i == glowTube && glowT > 0 && glowT < 1) glow = math.sin(glowT * math.pi);
       if (won && complete) glow = math.max(glow, 0.55 + 0.25 * math.sin(winT * math.pi * 4 + i));
       _tube(canvas, L.tubeRect(i), glow, complete ? Palette.balls[board.tubes[i].first] : null);
+      if (board.isPicky(i)) _pickyMark(canvas, L.tubeRect(i), Palette.balls[board.rules.pickyColor]);
 
       // Balls resting in the tube.
       final t = board.tubes[i];
@@ -267,6 +275,7 @@ class _BoardPainter extends CustomPainter {
         }
         _ball(canvas, Offset(L.cx(i), y), Palette.balls[t[k]], L.ball / 2);
       }
+      if (board.isLocked(i)) _lockMark(canvas, L.tubeRect(i), board.lockRemaining);
       canvas.restore();
     }
     if (p != null) _flying(canvas, p);
@@ -319,35 +328,104 @@ class _BoardPainter extends CustomPainter {
 
   void _tube(Canvas canvas, Rect r, double glow, Color? doneColor) {
     final radius = Radius.circular(r.width / 2);
-    final rr = RRect.fromRectAndCorners(r,
-        topLeft: Radius.circular(r.width * 0.12),
-        topRight: Radius.circular(r.width * 0.12),
-        bottomLeft: radius,
-        bottomRight: radius);
+    final rr = RRect.fromRectAndCorners(
+      r,
+      topLeft: Radius.circular(r.width * 0.12),
+      topRight: Radius.circular(r.width * 0.12),
+      bottomLeft: radius,
+      bottomRight: radius,
+    );
     if (glow > 0) {
       canvas.drawRRect(
-          rr.inflate(2),
-          Paint()
-            ..color = (doneColor ?? Palette.gold).withValues(alpha: 0.55 * glow)
-            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16 * glow + 2));
+        rr.inflate(2),
+        Paint()
+          ..color = (doneColor ?? Palette.gold).withValues(alpha: 0.55 * glow)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16 * glow + 2),
+      );
     }
     canvas.drawRRect(rr.shift(const Offset(0, 4)), Paint()..color = const Color(0x0F000000));
     canvas.drawRRect(rr, Paint()..color = Palette.tubeFill);
     canvas.drawRRect(
-        rr,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = math.max(2.5, r.width * 0.055)
-          ..color = Palette.tubeStroke);
+      rr,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(2.5, r.width * 0.055)
+        ..color = Palette.tubeStroke,
+    );
     // Glass highlight.
     final hl = Rect.fromLTWH(r.left + r.width * 0.16, r.top + r.width * 0.25, r.width * 0.1, r.height * 0.55);
-    canvas.drawRRect(RRect.fromRectAndRadius(hl, Radius.circular(hl.width)),
-        Paint()..color = const Color(0x66FFFFFF));
+    canvas.drawRRect(RRect.fromRectAndRadius(hl, Radius.circular(hl.width)), Paint()..color = const Color(0x66FFFFFF));
     if (doneColor != null) {
       // Little colored cap on completed tubes.
       final cap = Rect.fromLTWH(r.left - 3, r.top - 9, r.width + 6, 11);
       canvas.drawRRect(RRect.fromRectAndRadius(cap, const Radius.circular(5)), Paint()..color = doneColor);
     }
+  }
+
+  /// Picky tube: tinted glass, a colored base and a target dot above.
+  void _pickyMark(Canvas canvas, Rect r, Color color) {
+    final rr = RRect.fromRectAndCorners(
+      r,
+      topLeft: Radius.circular(r.width * 0.12),
+      topRight: Radius.circular(r.width * 0.12),
+      bottomLeft: Radius.circular(r.width / 2),
+      bottomRight: Radius.circular(r.width / 2),
+    );
+    canvas.drawRRect(rr, Paint()..color = color.withValues(alpha: 0.12));
+    canvas.drawRRect(
+      rr,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(2.5, r.width * 0.06)
+        ..color = color.withValues(alpha: 0.75),
+    );
+    final c = Offset(r.center.dx, r.top - r.width * 0.42);
+    canvas.drawCircle(c, r.width * 0.2, Paint()..color = color);
+    canvas.drawCircle(
+      c,
+      r.width * 0.2,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..color = Colors.white,
+    );
+  }
+
+  /// Locked tube: frosted cover with a padlock and the moves until it opens.
+  void _lockMark(Canvas canvas, Rect r, int remaining) {
+    final rr = RRect.fromRectAndCorners(
+      r,
+      topLeft: Radius.circular(r.width * 0.12),
+      topRight: Radius.circular(r.width * 0.12),
+      bottomLeft: Radius.circular(r.width / 2),
+      bottomRight: Radius.circular(r.width / 2),
+    );
+    canvas.drawRRect(rr, Paint()..color = const Color(0xB3EDE6D9));
+    final c = Offset(r.center.dx, r.center.dy - r.width * 0.1);
+    final s = r.width * 0.5;
+    final body = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: c, width: s, height: s * 0.78),
+      Radius.circular(s * 0.18),
+    );
+    canvas.drawArc(
+      Rect.fromCenter(center: c.translate(0, -s * 0.38), width: s * 0.62, height: s * 0.7),
+      math.pi,
+      math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = s * 0.14
+        ..color = Palette.ink,
+    );
+    canvas.drawRRect(body, Paint()..color = Palette.ink);
+    final tp = TextPainter(
+      text: TextSpan(
+        text: '$remaining',
+        style: TextStyle(color: Colors.white, fontSize: s * 0.5, fontWeight: FontWeight.w900),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, c - Offset(tp.width / 2, tp.height / 2));
   }
 
   void _ball(Canvas canvas, Offset c, Color color, double r) {
