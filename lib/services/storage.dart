@@ -109,6 +109,9 @@ class Storage {
   int get practiceSolved => _prefs.getInt('practiceSolved') ?? 0;
   Future<void> addPracticeSolve() => _prefs.setInt('practiceSolved', practiceSolved + 1);
 
+  String get ambience => _prefs.getString('ambience') ?? 'off';
+  Future<void> setAmbience(String v) => _prefs.setString('ambience', v);
+
   bool get soundOn => _prefs.getBool('sound') ?? true;
   Future<void> setSound(bool v) => _prefs.setBool('sound', v);
 

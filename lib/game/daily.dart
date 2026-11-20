@@ -89,9 +89,16 @@ DailyPuzzle puzzleForDay(DateTime anyTimeThatDay) {
   );
 }
 
-/// An endless practice puzzle. Doesn't count for stats or streaks.
+/// An endless Unwind puzzle: no move limit, no fail state. Doesn't count for
+/// stats or streaks.
 DailyPuzzle practicePuzzle(int seed) {
-  final specs = weekdaySpecs.values.toList();
+  // Calmer mix for Unwind: 4 colors only, no locked tube.
+  final specs = [
+    weekdaySpecs[DateTime.monday]!,
+    weekdaySpecs[DateTime.tuesday]!,
+    weekdaySpecs[DateTime.wednesday]!,
+    weekdaySpecs[DateTime.friday]!,
+  ];
   final spec = specs[SeededRng(seed ^ 0x51ed).nextInt(specs.length)];
   return generatePuzzle(seed: seed, spec: spec, number: 0, day: dayOf(DateTime.now()));
 }

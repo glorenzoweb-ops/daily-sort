@@ -164,7 +164,8 @@ class GameController extends ChangeNotifier {
     if (board.isSolved) {
       status = GameStatus.won;
       _recordWin();
-    } else if (history.length >= puzzle.moveLimit) {
+    } else if (!puzzle.isPractice && history.length >= puzzle.moveLimit) {
+      // Unwind (practice) puzzles have no move limit: you can't fail.
       status = GameStatus.outOfMoves;
     } else {
       status = GameStatus.playing;

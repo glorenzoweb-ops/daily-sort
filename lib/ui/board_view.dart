@@ -50,7 +50,10 @@ class BoardLayout {
 class BoardView extends StatefulWidget {
   final GameController game;
   final VoidCallback? onWinAnimationDone;
-  const BoardView({super.key, required this.game, this.onWinAnimationDone});
+
+  /// Unwind mode: a soft glow that breathes at ~6 breaths a minute.
+  final bool breathe;
+  const BoardView({super.key, required this.game, this.onWinAnimationDone, this.breathe = false});
 
   @override
   State<BoardView> createState() => _BoardViewState();
@@ -132,6 +135,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (p == null) return;
     _pending = null;
     Haptics.land();
+    Sounds.clink();
     _landAt[p.move.to] = _time.value;
     if (p.completedTube) {
       Haptics.tubeComplete();
@@ -176,6 +180,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   }
 
   void _onTap(Offset pos) {
+    Sounds.wake();
     final layout = _layout;
     if (layout == null) return;
     final tube = layout.hit(pos);
@@ -248,6 +253,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                 sparks: _sparks,
                 shakeAt: _shakeAt,
                 lookTube: _pending?.move.to ?? game.selected,
+                breathe: widget.breathe,
               ),
             ),
           ),
@@ -275,8 +281,10 @@ class _BoardPainter extends CustomPainter {
   final List<_Spark> sparks;
   final double shakeAt;
   final int? lookTube;
+  final bool breathe;
 
   _BoardPainter({
+    this.breathe = false,
     required this.time,
     required this.landAt,
     required this.sparks,
@@ -310,6 +318,7 @@ class _BoardPainter extends CustomPainter {
       canvas.translate(math.sin(sd * 70) * k, math.cos(sd * 53) * k);
     }
     final lookX = lookTube == null ? null : L.cx(lookTube!);
+    if (breathe) _breathing(canvas, size);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
       if (i == shakeTube && shakeT > 0 && shakeT < 1) {
@@ -366,6 +375,45 @@ class _BoardPainter extends CustomPainter {
     if (p != null) _flying(canvas, p);
     canvas.restore();
     _drawSparks(canvas);
+  }
+
+  /// 10-second breath: 4 s in, 6 s out (about 6 breaths a minute, the pace
+  /// used in slow-breathing relaxation exercises).
+  static double breathAt(double t) {
+    final ph = t % 10;
+    return ph < 4 ? Curves.easeInOut.transform(ph / 4) : 1 - Curves.easeInOut.transform((ph - 4) / 6);
+  }
+
+  void _breathing(Canvas canvas, Size size) {
+    final L = layout;
+    final b = breathAt(time);
+    final row = Rect.fromLTRB(L.x0, L.tubeTop, L.x0 + L.tubes * L.tubeW + (L.tubes - 1) * L.gap, L.tubeTop + L.tubeH);
+    final glowRect = row.inflate(L.ball * (0.6 + 0.9 * b));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(glowRect, Radius.circular(L.ball * 1.5)),
+      Paint()
+        ..color = const Color(0xFFFFD27A).withValues(alpha: 0.10 + 0.22 * b)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, L.ball * (0.8 + 0.8 * b)),
+    );
+    // A quiet cue under the tubes.
+    final inhaling = time % 10 < 4;
+    final label = inhaling ? 'breathe in' : 'breathe out';
+    final edge = inhaling ? (time % 10) / 4 : ((time % 10) - 4) / 6;
+    final alpha = (math.sin(edge * math.pi)).clamp(0.0, 1.0) * 0.55;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: Palette.inkSoft.withValues(alpha: alpha),
+          fontSize: math.max(13, L.ball * 0.32),
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final y = math.min(size.height - tp.height - 2, row.bottom + L.ball * 0.55);
+    tp.paint(canvas, Offset((size.width - tp.width) / 2, y));
   }
 
   double _wobble(int tube) {
