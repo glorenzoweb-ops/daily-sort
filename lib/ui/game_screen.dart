@@ -4,6 +4,7 @@ import '../game/daily.dart';
 import '../game/game_controller.dart';
 import '../services/premium.dart';
 import '../services/sound.dart';
+import '../services/sound/ambience.dart';
 import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
@@ -76,10 +77,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   void _backToToday() => _load();
 
-  void _toggleSound() {
-    setState(() => Sounds.enabled = !Sounds.enabled);
-    widget.storage.setSound(Sounds.enabled);
-    if (Sounds.enabled) Sounds.note(4, volume: 0.5);
+  void _openSound() {
+    showCozySheet(
+      context,
+      SoundSheet(
+        storage: widget.storage,
+        onChanged: () {
+          if (mounted) setState(() {});
+        },
+      ),
+    );
   }
 
   void _onWin() {
@@ -138,12 +145,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: Row(
                 children: [
                   _IconBtn(Icons.help_outline_rounded, 'How to play', () => showCozySheet(context, const HowToSheet())),
-                  _IconBtn(Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded, 'Sound', _toggleSound),
+                  _IconBtn(
+                    Sounds.ambience != Ambience.off
+                        ? Icons.music_note_rounded
+                        : (Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
+                    'Sound and soundscapes',
+                    _openSound,
+                  ),
                   const Spacer(),
                   if (p.isPractice)
                     _IconBtn(Icons.today_rounded, "Back to today's puzzle", _backToToday)
                   else
-                    _IconBtn(Icons.all_inclusive_rounded, 'Practice puzzles', _startPractice),
+                    _IconBtn(Icons.spa_rounded, 'Unwind: endless calm puzzles', _startPractice),
                   _IconBtn(
                     Icons.bar_chart_rounded,
                     'Statistics',
@@ -154,32 +167,36 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 4),
             Text(
-              p.isPractice ? 'PRACTICE' : 'DAILY SORT',
+              p.isPractice ? 'UNWIND' : 'DAILY SORT',
               style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Palette.ink, letterSpacing: 1.5),
             ),
             const SizedBox(height: 2),
             Text(
               p.isPractice
-                  ? 'Unlimited puzzles  ·  ${difficultyLabel(p.difficulty)}'
+                  ? 'No limits. Just sort and breathe.'
                   : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}',
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
             ),
             const SizedBox(height: 18),
-            _MovesPill(used: g.movesUsed, limit: p.moveLimit),
+            _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
             if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
             const SizedBox(height: 8),
             Text(
-              g.status == GameStatus.won ? 'Solved!  ·  par ${p.par}' : 'Par ${p.par}  ·  ${g.movesLeft} left',
+              g.status == GameStatus.won
+                  ? 'Solved!  ·  par ${p.par}'
+                  : (p.isPractice ? 'Par ${p.par}  ·  take your time' : 'Par ${p.par}  ·  ${g.movesLeft} left'),
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
-                color: g.movesLeft <= 2 && g.status == GameStatus.playing ? Palette.danger : Palette.inkSoft,
+                color: !p.isPractice && g.movesLeft <= 2 && g.status == GameStatus.playing
+                    ? Palette.danger
+                    : Palette.inkSoft,
               ),
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: BoardView(key: ObjectKey(g), game: g, onWinAnimationDone: _onWin),
+                child: BoardView(key: ObjectKey(g), game: g, onWinAnimationDone: _onWin, breathe: p.isPractice),
               ),
             ),
             _BottomBar(game: g, onResults: _openResults, onNext: _startPractice),
@@ -192,7 +209,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 }
 
 class _MovesPill extends StatelessWidget {
-  final int used, limit;
+  final int used;
+  final int? limit; // null in Unwind: no limit
   const _MovesPill({required this.used, required this.limit});
 
   @override
@@ -219,10 +237,11 @@ class _MovesPill extends StatelessWidget {
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Palette.gold),
             ),
           ),
-          Text(
-            ' / $limit',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
-          ),
+          if (limit != null)
+            Text(
+              ' / $limit',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+            ),
         ],
       ),
     );
@@ -268,8 +287,8 @@ class _BottomBar extends StatelessWidget {
                 textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
               ),
               onPressed: practice ? onResults : onNext,
-              icon: Icon(practice ? Icons.brush_rounded : Icons.all_inclusive_rounded),
-              label: Text(practice ? 'Painting' : 'More'),
+              icon: Icon(practice ? Icons.brush_rounded : Icons.spa_rounded),
+              label: Text(practice ? 'Painting' : 'Unwind'),
             ),
           ],
         );
@@ -438,3 +457,110 @@ class TwistChip extends StatelessWidget {
 }
 
 String colorName(int c) => const ['red', 'yellow', 'green', 'blue', 'purple', 'orange'][c % 6];
+
+/// Notes on/off and the background soundscape picker.
+class SoundSheet extends StatefulWidget {
+  final Storage storage;
+  final VoidCallback onChanged;
+  const SoundSheet({super.key, required this.storage, required this.onChanged});
+
+  @override
+  State<SoundSheet> createState() => _SoundSheetState();
+}
+
+class _SoundSheetState extends State<SoundSheet> {
+  void _pick(Ambience a) {
+    Sounds.setAmbience(a);
+    widget.storage.setAmbience(a.name);
+    setState(() {});
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text(
+          'Sound',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Palette.ink),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Pick a soundscape to play while you sort.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+        ),
+        const SizedBox(height: 18),
+        GridView.count(
+          crossAxisCount: 3,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1.25,
+          children: [
+            for (final a in Ambience.values)
+              _AmbienceTile(ambience: a, selected: Sounds.ambience == a, onTap: () => _pick(a)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+          title: const Text(
+            'Notes and clinks when you pour',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
+          ),
+          value: Sounds.enabled,
+          activeThumbColor: Palette.gold,
+          onChanged: (v) {
+            Sounds.enabled = v;
+            widget.storage.setSound(v);
+            if (v) Sounds.note(4, volume: 0.5);
+            setState(() {});
+            widget.onChanged();
+          },
+        ),
+        const Text(
+          'On iPhone, turn off the silent switch to hear sound.',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+        ),
+      ],
+    );
+  }
+}
+
+class _AmbienceTile extends StatelessWidget {
+  final Ambience ambience;
+  final bool selected;
+  final VoidCallback onTap;
+  const _AmbienceTile({required this.ambience, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFFFFF3D6) : Palette.background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: selected ? Palette.gold : const Color(0xFFEDE6D9), width: 2),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(ambienceEmoji(ambience), style: const TextStyle(fontSize: 26)),
+            const SizedBox(height: 4),
+            Text(
+              ambienceLabel(ambience),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -70,7 +70,7 @@ Puzzle #1 is Nov 20, 2026. The weekly rhythm (`weekdaySpecs` in `lib/game/daily.
 | Sat | Classic, 5 colors |
 | Sun | Picky tube, 5 colors |
 
-Every pour plays a note (`lib/services/sound.dart`, synthesized, no audio files) and each solve is drawn as a painting (`lib/ui/solve_art.dart`) that players share as an image. The ♾ button opens unlimited practice puzzles, which don't count for stats.
+Every pour plays a note (`lib/services/sound.dart`, synthesized, no audio files) and each solve is drawn as a painting (`lib/ui/solve_art.dart`) that players share as an image. The leaf button opens Unwind: endless 4-color puzzles with no move limit, a breathing glow (10 s cycle, about 6 breaths a minute) and optional soundscapes (rain, waves, fireplace, night), all synthesized in `lib/services/sound/`. Unwind doesn't count for stats.
 
 **Don't change the generator** (`rng.dart`, `daily.dart`, `board.dart` move rules) once people are playing: every past and future puzzle would change. The test `first 60 puzzles match the pinned fingerprint` fails if you do.
 

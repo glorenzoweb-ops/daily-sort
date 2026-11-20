@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'services/feedback.dart';
 import 'services/premium.dart';
 import 'services/sound.dart';
+import 'services/sound/ambience.dart';
 import 'services/storage.dart';
 import 'ui/game_screen.dart';
 import 'ui/palette.dart';
@@ -15,6 +16,7 @@ Future<void> main() async {
   final storage = await Storage.open();
   Haptics.enabled = storage.hapticsOn;
   Sounds.enabled = storage.soundOn;
+  Sounds.ambience = Ambience.values.asNameMap()[storage.ambience] ?? Ambience.off;
   Sounds.init(); // not awaited: the game never waits on audio
   // Swap for a RevenueCat-backed implementation when payments go live.
   final premium = ComingSoonPremium();

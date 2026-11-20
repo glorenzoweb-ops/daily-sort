@@ -13,6 +13,7 @@ NoteEngine createEngine() => _WebEngine();
 class _WebEngine implements NoteEngine {
   web.AudioContext? _ctx;
   final List<web.AudioBuffer> _buffers = [];
+  web.AudioBufferSourceNode? _loop;
 
   @override
   Future<void> load(List<Float32List> notes) async {
@@ -34,5 +35,34 @@ class _WebEngine implements NoteEngine {
     src.connect(gain);
     gain.connect(ctx.destination);
     src.start();
+  }
+
+  @override
+  Future<void> playLoop(Float32List samples, int rate, double volume) async {
+    final ctx = _ctx;
+    if (ctx == null) return;
+    stopLoop();
+    if (ctx.state != 'running') ctx.resume();
+    final b = ctx.createBuffer(1, samples.length, rate);
+    b.copyToChannel(samples.toJS, 0);
+    final src = ctx.createBufferSource()
+      ..buffer = b
+      ..loop = true;
+    final gain = ctx.createGain();
+    // Fade in over 1.5 s.
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 1.5);
+    src.connect(gain);
+    gain.connect(ctx.destination);
+    src.start();
+    _loop = src;
+  }
+
+  @override
+  void stopLoop() {
+    try {
+      _loop?.stop();
+    } catch (_) {}
+    _loop = null;
   }
 }

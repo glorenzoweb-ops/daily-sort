@@ -95,7 +95,10 @@ class HowToSheet extends StatelessWidget {
         row('🌍', 'Everyone in the world gets the same puzzle. A new one drops at midnight.'),
         row('🎯', 'Some days add a twist: a picky tube, a locked tube or tall tubes.'),
         row('🎵', 'Every pour plays a note. Your solve becomes a song and a painting to share.'),
-        row('♾️', 'Want more? Tap ♾ for unlimited practice puzzles.'),
+        row(
+          '🌿',
+          'Want more? Tap the leaf for Unwind: endless puzzles with no move limit, a breathing glow and soundscapes.',
+        ),
         const SizedBox(height: 20),
         _BigButton(label: "Let's sort", onTap: () => Navigator.pop(context)),
       ],
@@ -177,7 +180,7 @@ class _ResultSheetState extends State<ResultSheet> {
       final png = await renderSolveCard(
         pours: g.pours,
         tubeCount: p.start.tubeCount,
-        title: p.isPractice ? 'Daily Sort practice' : 'Daily Sort #${p.number}',
+        title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
         subtitle: '${g.movesUsed} moves · par ${p.par}${p.isPractice ? '' : ' · ${dayLabel(p.day)}'}',
         stars: g.stars,
         footer: shareUrl.replaceFirst('https://', '').replaceAll(RegExp(r'/$'), ''),
@@ -270,8 +273,8 @@ class _ResultSheetState extends State<ResultSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: _SmallButton(
-                  label: g.puzzle.isPractice ? 'Next puzzle' : 'Play more',
-                  icon: Icons.all_inclusive_rounded,
+                  label: g.puzzle.isPractice ? 'Next puzzle' : 'Unwind',
+                  icon: Icons.spa_rounded,
                   onTap: widget.onPractice,
                 ),
               ),
@@ -284,7 +287,7 @@ class _ResultSheetState extends State<ResultSheet> {
         ],
         if (g.puzzle.isPractice)
           Text(
-            'Practice puzzles solved: ${widget.storage.practiceSolved}',
+            'Unwind puzzles solved: ${widget.storage.practiceSolved}',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 15, color: Palette.inkSoft, fontWeight: FontWeight.w800),
           )

@@ -25,7 +25,7 @@ Float32List pluck(double freq, {double seconds = 0.9}) {
 }
 
 /// 16-bit mono WAV file bytes (for the native audio player).
-Uint8List toWav(Float32List samples) {
+Uint8List toWav(Float32List samples, {int rate = sampleRate}) {
   final data = ByteData(44 + samples.length * 2);
   void str(int o, String s) {
     for (var i = 0; i < s.length; i++) {
@@ -40,8 +40,8 @@ Uint8List toWav(Float32List samples) {
   data.setUint32(16, 16, Endian.little);
   data.setUint16(20, 1, Endian.little); // PCM
   data.setUint16(22, 1, Endian.little); // mono
-  data.setUint32(24, sampleRate, Endian.little);
-  data.setUint32(28, sampleRate * 2, Endian.little);
+  data.setUint32(24, rate, Endian.little);
+  data.setUint32(28, rate * 2, Endian.little);
   data.setUint16(32, 2, Endian.little);
   data.setUint16(34, 16, Endian.little);
   str(36, 'data');
@@ -50,4 +50,22 @@ Uint8List toWav(Float32List samples) {
     data.setInt16(44 + i * 2, (samples[i].clamp(-1.0, 1.0) * 32767).round(), Endian.little);
   }
   return data.buffer.asUint8List();
+}
+
+/// A short glass "clink" for when balls land: inharmonic partials that die
+/// out fast, like tapping a glass tube.
+Float32List synthClink(double freq) {
+  final n = (sampleRate * 0.35).round();
+  final out = Float32List(n);
+  const partials = [1.0, 2.76, 5.40, 8.93];
+  const amps = [1.0, 0.5, 0.25, 0.12];
+  for (var i = 0; i < n; i++) {
+    final t = i / sampleRate;
+    var v = 0.0;
+    for (var p = 0; p < partials.length; p++) {
+      v += amps[p] * math.sin(2 * math.pi * freq * partials[p] * t) * math.exp(-t * (14 + p * 9));
+    }
+    out[i] = (0.22 * v * (t < 0.002 ? t / 0.002 : 1)).toDouble();
+  }
+  return out;
 }
