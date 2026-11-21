@@ -1,8 +1,9 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
+
+import 'ambient_clock.dart';
 
 /// A soft sky behind the game that follows the player's local time: peach
 /// mornings, clear days, golden sunsets and a starry lavender night. Kept
@@ -16,25 +17,24 @@ class SkyBackground extends StatefulWidget {
   State<SkyBackground> createState() => _SkyBackgroundState();
 }
 
-class _SkyBackgroundState extends State<SkyBackground> with SingleTickerProviderStateMixin {
-  late final Ticker _ticker;
+class _SkyBackgroundState extends State<SkyBackground> {
   final ValueNotifier<double> _t = ValueNotifier(0);
+
+  // Clouds and stars move slowly: they follow the shared 20 fps clock, so
+  // they redraw on the same frames as the board's idle life.
+  void _onClock() => _t.value = AmbientClock.instance.seconds;
 
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((e) {
-      // Clouds and stars move slowly: 20 frames a second is plenty.
-      final t = e.inMicroseconds / 1e6;
-      if (t - _t.value >= 0.05) _t.value = t;
-    })..start();
+    AmbientClock.instance.addListener(_onClock);
   }
 
   late final SkyPainter _painter = SkyPainter(_t, hourOverride: widget.hour);
 
   @override
   void dispose() {
-    _ticker.dispose();
+    AmbientClock.instance.removeListener(_onClock);
     _t.dispose();
     _painter.dispose();
     super.dispose();
@@ -139,8 +139,9 @@ class SkyPainter extends CustomPainter {
     final now = DateTime.now();
     final h = hourOverride ?? now.hour + now.minute / 60;
     // The gradient, sun or moon, hills and light change only with the clock:
-    // draw them into one image every couple of minutes.
-    final bucket = (h * 30).floor();
+    // draw them into one image every 10 minutes. (Making the image means a
+    // read back from the graphics card, so not too often.)
+    final bucket = (h * 6).floor();
     if (_base == null || _baseSize != size || _baseBucket != bucket || _baseDpr != dpr) {
       _base?.dispose();
       _base = _render(size, dpr, (c) => _paintStatic(c, size, h));

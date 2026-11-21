@@ -20,6 +20,7 @@ import 'picture.dart';
 import 'sheets.dart';
 import 'social.dart';
 import 'streak.dart';
+import 'warmup.dart';
 
 class GameScreen extends StatefulWidget {
   final Storage storage;
@@ -51,6 +52,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadDaily();
+    // Compile the graphics effects once the first screen is up, before the
+    // first tube completes.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => Future<void>.delayed(const Duration(milliseconds: 300), warmUpEffects),
+    );
   }
 
   @override
@@ -428,6 +434,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       listenable: g,
       builder: (context, _) {
         final p = g.puzzle;
+        // Read saved data once per rebuild (it's JSON under the hood).
+        final friendsToday = p.isPractice || g.archive ? const <FriendResult>[] : _friends.forDay(p.number);
         return Column(
           children: [
             Padding(
@@ -519,10 +527,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     : Palette.inkSoft,
               ),
             ),
-            if (!p.isPractice && !g.archive && _friends.forDay(p.number).isNotEmpty) ...[
+            if (friendsToday.isNotEmpty) ...[
               const SizedBox(height: 8),
               FriendsChip(
-                today: _friends.forDay(p.number),
+                today: friendsToday,
                 myMoves: g.status == GameStatus.won ? g.movesUsed : null,
                 onTap: _openFriends,
               ),
@@ -770,35 +778,34 @@ class _RoundAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onTap != null;
-    return Opacity(
-      opacity: enabled ? 1 : 0.4,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Squish(
-            child: Material(
-              elevation: enabled ? 3 : 0,
-              shadowColor: const Color(0x66241A10),
-              color: primary ? Palette.ink : Colors.white,
-              shape: const CircleBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onTap,
-                child: SizedBox(
-                  width: 58,
-                  height: 58,
-                  child: Icon(icon, size: 28, color: primary ? Colors.white : Palette.ink),
-                ),
-              ),
+    // Faded with colors rather than an Opacity layer, which would cost an
+    // offscreen pass on every frame.
+    final ink = enabled ? Palette.ink : Palette.ink.withValues(alpha: 0.35);
+    final soft = enabled ? Palette.inkSoft : Palette.inkSoft.withValues(alpha: 0.45);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Squish(
+          child: Material(
+            elevation: enabled ? 3 : 0,
+            shadowColor: const Color(0x66241A10),
+            color: primary ? ink : Colors.white,
+            shape: CircleBorder(
+              side: BorderSide(color: enabled ? Palette.tubeStroke : const Color(0x80D8CFC0), width: 2),
+            ),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: SizedBox(width: 58, height: 58, child: Icon(icon, size: 28, color: primary ? Colors.white : ink)),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.inkSoft),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: soft),
+        ),
+      ],
     );
   }
 }

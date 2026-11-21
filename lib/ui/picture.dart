@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
@@ -491,10 +493,36 @@ void paintScene(Canvas canvas, Size size, Scene scene, List<double> reveal) {
 class ScenePainter extends CustomPainter {
   final Scene scene;
   final List<double> reveal;
-  ScenePainter(this.scene, this.reveal);
+
+  /// Turn the still picture into an image after a moment (for the big frame
+  /// above the board; small thumbnails just replay the recording).
+  final bool stamp;
+  ScenePainter(this.scene, this.reveal, {this.stamp = false}) : super(repaint: stamp ? _ScenePictures.ready : null);
 
   @override
-  void paint(Canvas canvas, Size size) => paintScene(canvas, size, scene, reveal);
+  void paint(Canvas canvas, Size size) {
+    // A picture that isn't mid-reveal is recorded once and replayed, and a
+    // moment later turned into an image that's just stamped on each frame.
+    // The image is made later rather than right away because making it means
+    // a read back from the graphics card, which would hitch right as a tube
+    // completes.
+    final still = reveal.every((v) => v == 0 || v == 1);
+    if (!still || size.isEmpty) {
+      paintScene(canvas, size, scene, reveal);
+      return;
+    }
+    final img = stamp ? _ScenePictures.image(scene, reveal, size) : null;
+    if (img != null) {
+      canvas.drawImageRect(
+        img,
+        Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+        Offset.zero & size,
+        Paint()..filterQuality = FilterQuality.medium,
+      );
+    } else {
+      canvas.drawPicture(_ScenePictures.picture(scene, reveal, size, makeImage: stamp));
+    }
+  }
 
   @override
   bool shouldRepaint(covariant ScenePainter old) => old.scene != scene || !_sameList(old.reveal, reveal);
@@ -504,6 +532,68 @@ class ScenePainter extends CustomPainter {
       if (a[i] != b[i]) return false;
     }
     return true;
+  }
+}
+
+/// Still pictures: recorded right away, turned into images a little later.
+class _ScenePictures {
+  static final Map<String, ui.Picture> _pictures = {};
+  static final Map<String, ui.Image> _images = {};
+  static final Set<String> _pending = {};
+  static const _max = 32;
+
+  /// Bumped when an image is ready, so painters switch to it.
+  static final ValueNotifier<int> ready = ValueNotifier(0);
+
+  static String _key(Scene scene, List<double> reveal, Size size) =>
+      '${scenes.indexOf(scene)}|${reveal.map((v) => v == 1 ? 1 : 0).join()}|${size.width.round()}|${size.height.round()}';
+
+  static ui.Picture picture(Scene scene, List<double> reveal, Size size, {bool makeImage = false}) {
+    final key = _key(scene, reveal, size);
+    var pic = _pictures.remove(key);
+    if (pic == null) {
+      final rec = ui.PictureRecorder();
+      paintScene(Canvas(rec), size, scene, reveal);
+      pic = rec.endRecording();
+    }
+    _pictures[key] = pic;
+    _trim(_pictures);
+    if (makeImage && _pending.add(key)) {
+      Timer(const Duration(milliseconds: 1200), () => _makeImage(key, scene, List.of(reveal), size));
+    }
+    return pic;
+  }
+
+  static ui.Image? image(Scene scene, List<double> reveal, Size size) {
+    final key = _key(scene, reveal, size);
+    final img = _images.remove(key);
+    if (img != null) _images[key] = img;
+    return img;
+  }
+
+  static void _makeImage(String key, Scene scene, List<double> reveal, Size size) {
+    _pending.remove(key);
+    if (_images.containsKey(key)) return;
+    try {
+      final dpr = ui.PlatformDispatcher.instance.implicitView?.devicePixelRatio ?? 2;
+      final w = math.max(1, (size.width * dpr).round()), h = math.max(1, (size.height * dpr).round());
+      final rec = ui.PictureRecorder();
+      final c = Canvas(rec)..scale(w / size.width, h / size.height);
+      paintScene(c, size, scene, reveal);
+      final pic = rec.endRecording();
+      _images[key] = pic.toImageSync(w, h);
+      pic.dispose();
+      _trim(_images);
+      ready.value++;
+    } catch (_) {}
+  }
+
+  static void _trim<T>(Map<String, T> m) {
+    while (m.length > _max) {
+      // Not disposed: a frame on screen may still be using it. Dropping the
+      // reference lets it be freed once nothing does.
+      m.remove(m.keys.first);
+    }
   }
 }
 
@@ -618,7 +708,7 @@ class _PictureFrameState extends State<PictureFrame> with TickerProviderStateMix
                       child: AnimatedBuilder(
                         animation: Listenable.merge(_layers),
                         builder: (_, _) => CustomPaint(
-                          painter: ScenePainter(widget.scene, [for (final c in _layers) c.value]),
+                          painter: ScenePainter(widget.scene, [for (final c in _layers) c.value], stamp: true),
                           size: Size.infinite,
                         ),
                       ),

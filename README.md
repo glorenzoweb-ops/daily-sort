@@ -72,7 +72,14 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 
 **Archive and Daily Sort+.** Today's puzzle is always free. The last 3 days of the archive are free (`freeArchiveDays`), and puzzles you already played stay open. Older days open the paywall (yearly $19.99 with a 7-day trial, or $2.99 a month). Until payments are wired in, the button explains that Plus opens with the store release and counts the tap (`premiumInterest` in storage) so you can see demand. Build with `--dart-define=PREMIUM=true` to test everything unlocked. Archive solves never touch the streak or stats.
 
-**Performance notes.** The board stamps pre-rendered images (glass, shelf, corks, balls, glows) instead of redrawing gradients and blurs every frame, and drops to ~24 fps when nothing is moving. The sky redraws its static parts every 2 minutes and moves clouds and stars at 20 fps. Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
+**Performance notes.** On the web, Flutter redraws the whole screen on every frame, so the game keeps frames few and cheap:
+- `web/index.html` caps rendering at 2 pixels per CSS pixel. 3x phone screens look the same and each frame costs less than half as much.
+- Background motion (sky, ball buddies breathing and blinking) runs on one shared 20 fps clock (`lib/ui/ambient_clock.dart`), driven by a timer rather than a ticker. The board only runs at full frame rate while something moves and then goes back to sleep.
+- The board stamps pre-rendered images (glass, shelf, corks, balls, glows). The images a completed tube and the win need are prepared one per idle frame in advance. Making them at the moment itself means a read back from the graphics card, which hitches.
+- The picture of the day is recorded once and turned into an image a moment after it changes. The sky's static part is redrawn every 10 minutes.
+- `lib/ui/warmup.dart` draws one of each effect into a tiny hidden image at startup, so the graphics card has compiled them before the first tube completes.
+- Avoid `Opacity` and `ShaderMask` on things that stay on screen: each costs an extra offscreen pass on every frame.
+- Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
 | `lib/services/premium.dart` | Daily Sort+ plans, archive gating, and the hook for real payments |
 
