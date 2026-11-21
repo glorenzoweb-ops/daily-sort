@@ -10,6 +10,7 @@ import '../services/share.dart';
 import '../services/storage.dart';
 import 'palette.dart';
 import 'solve_art.dart';
+import 'squish.dart';
 
 import 'package:google_fonts/google_fonts.dart';
 
@@ -18,15 +19,26 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    barrierColor: const Color(0x66000000),
+    barrierColor: const Color(0x55241A10),
+    sheetAnimationStyle: const AnimationStyle(
+      duration: Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      reverseDuration: Duration(milliseconds: 240),
+      reverseCurve: Curves.easeInCubic,
+    ),
     builder: (_) => Align(
       alignment: Alignment.bottomCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: Container(
           decoration: const BoxDecoration(
-            color: Palette.card,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.white, Color(0xFFFFFAF2)],
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+            boxShadow: [BoxShadow(color: Color(0x33241A10), blurRadius: 30, offset: Offset(0, -6))],
           ),
           padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.paddingOf(context).bottom),
           child: SingleChildScrollView(
@@ -53,11 +65,7 @@ class _H extends StatelessWidget {
   final String text;
   const _H(this.text);
   @override
-  Widget build(BuildContext context) => Text(
-    text,
-    textAlign: TextAlign.center,
-    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Palette.ink),
-  );
+  Widget build(BuildContext context) => Text(text, textAlign: TextAlign.center, style: Palette.display());
 }
 
 // ---------------------------------------------------------------------------
@@ -311,12 +319,7 @@ class _ResultSheetState extends State<ResultSheet> {
           Text(
             _fmt(_left),
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.w900,
-              color: Palette.ink,
-              fontFeatures: [FontFeature.tabularFigures()],
-            ),
+            style: Palette.display(size: 34).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
           ),
           const SizedBox(height: 18),
         ],
@@ -358,17 +361,19 @@ class _SmallButton extends StatelessWidget {
   const _SmallButton({required this.label, required this.icon, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
-    style: OutlinedButton.styleFrom(
-      foregroundColor: Palette.ink,
-      minimumSize: const Size(0, 48),
-      side: const BorderSide(color: Palette.tubeStroke, width: 2),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+  Widget build(BuildContext context) => Squish(
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Palette.ink,
+        minimumSize: const Size(0, 48),
+        side: const BorderSide(color: Palette.tubeStroke, width: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+      ),
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
     ),
-    onPressed: onTap,
-    icon: Icon(icon, size: 18),
-    label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
   );
 }
 
@@ -378,10 +383,7 @@ class _Stat extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      Text(
-        value,
-        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Palette.ink),
-      ),
+      Text(value, style: Palette.display(size: 28)),
       Text(
         label,
         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Palette.inkSoft),
@@ -398,22 +400,24 @@ class _BigButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 56,
-      child: FilledButton(
-        style: FilledButton.styleFrom(
-          backgroundColor: Palette.ink,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-        ),
-        onPressed: onTap,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[Icon(icon, size: 22), const SizedBox(width: 10)],
-            Text(label),
-          ],
+    return Squish(
+      child: SizedBox(
+        height: 56,
+        child: FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: Palette.ink,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          onPressed: onTap,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[Icon(icon, size: 22), const SizedBox(width: 10)],
+              Text(label),
+            ],
+          ),
         ),
       ),
     );

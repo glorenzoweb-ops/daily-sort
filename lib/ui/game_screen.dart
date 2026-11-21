@@ -9,6 +9,8 @@ import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
 import 'palette.dart';
+import 'sky.dart';
+import 'squish.dart';
 import 'sheets.dart';
 
 class GameScreen extends StatefulWidget {
@@ -118,7 +120,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       backgroundColor: Palette.background,
       body: Stack(
         children: [
-          const Positioned.fill(child: CustomPaint(painter: _PaperPainter())),
+          const Positioned.fill(child: SkyBackground()),
           SafeArea(
             child: Center(
               child: ConstrainedBox(
@@ -168,7 +170,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             const SizedBox(height: 4),
             Text(
               p.isPractice ? 'UNWIND' : 'DAILY SORT',
-              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Palette.ink, letterSpacing: 1.5),
+              style: Palette.display(size: 38, spacing: 2).copyWith(
+                shadows: const [
+                  Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
+                  Shadow(color: Color(0x33000000), offset: Offset(0, 5), blurRadius: 6),
+                ],
+              ),
             ),
             const SizedBox(height: 2),
             Text(
@@ -217,7 +224,16 @@ class _MovesPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
-      decoration: BoxDecoration(color: Palette.ink, borderRadius: BorderRadius.circular(30)),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF34344F), Palette.ink],
+        ),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+        boxShadow: const [BoxShadow(color: Color(0x40241A10), blurRadius: 14, offset: Offset(0, 6))],
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -265,30 +281,37 @@ class _BottomBar extends StatelessWidget {
           key: const ValueKey('won'),
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: Palette.gold,
-                foregroundColor: Palette.ink,
-                minimumSize: const Size(170, 56),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-                textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            Squish(
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  elevation: 4,
+                  shadowColor: const Color(0x66C08A1E),
+                  backgroundColor: Palette.gold,
+                  foregroundColor: Palette.ink,
+                  minimumSize: const Size(170, 56),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                  textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                onPressed: practice ? onNext : onResults,
+                icon: Icon(practice ? Icons.arrow_forward_rounded : Icons.brush_rounded),
+                label: Text(practice ? 'Next puzzle' : 'My painting'),
               ),
-              onPressed: practice ? onNext : onResults,
-              icon: Icon(practice ? Icons.arrow_forward_rounded : Icons.brush_rounded),
-              label: Text(practice ? 'Next puzzle' : 'My painting'),
             ),
             const SizedBox(width: 12),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Palette.ink,
-                minimumSize: const Size(120, 56),
-                side: const BorderSide(color: Palette.tubeStroke, width: 2),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-                textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+            Squish(
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Palette.ink,
+                  minimumSize: const Size(120, 56),
+                  side: const BorderSide(color: Palette.tubeStroke, width: 2),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                  textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                onPressed: practice ? onResults : onNext,
+                icon: Icon(practice ? Icons.brush_rounded : Icons.spa_rounded),
+                label: Text(practice ? 'Painting' : 'Unwind'),
               ),
-              onPressed: practice ? onResults : onNext,
-              icon: Icon(practice ? Icons.brush_rounded : Icons.spa_rounded),
-              label: Text(practice ? 'Painting' : 'Unwind'),
             ),
           ],
         );
@@ -357,16 +380,20 @@ class _RoundAction extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Material(
-            color: primary ? Palette.ink : Colors.white,
-            shape: const CircleBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: SizedBox(
-                width: 58,
-                height: 58,
-                child: Icon(icon, size: 28, color: primary ? Colors.white : Palette.ink),
+          Squish(
+            child: Material(
+              elevation: enabled ? 3 : 0,
+              shadowColor: const Color(0x66241A10),
+              color: primary ? Palette.ink : Colors.white,
+              shape: const CircleBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: SizedBox(
+                  width: 58,
+                  height: 58,
+                  child: Icon(icon, size: 28, color: primary ? Colors.white : Palette.ink),
+                ),
               ),
             ),
           ),
@@ -388,10 +415,13 @@ class _IconBtn extends StatelessWidget {
   const _IconBtn(this.icon, this.tooltip, this.onTap);
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    onPressed: onTap,
-    tooltip: tooltip,
-    icon: Icon(icon, size: 28, color: Palette.ink),
+  Widget build(BuildContext context) => Squish(
+    pressedScale: 0.82,
+    child: IconButton(
+      onPressed: onTap,
+      tooltip: tooltip,
+      icon: Icon(icon, size: 28, color: Palette.ink),
+    ),
   );
 }
 
@@ -404,23 +434,6 @@ class _Loading extends StatelessWidget {
       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
     ),
   );
-}
-
-/// Faint ruled-paper background.
-class _PaperPainter extends CustomPainter {
-  const _PaperPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()
-      ..color = Palette.gridLine
-      ..strokeWidth = 1;
-    for (double y = 0; y < size.height; y += 32) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), p);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
 }
 
 /// Explains today's rule twist in one line.
@@ -481,11 +494,7 @@ class _SoundSheetState extends State<SoundSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Sound',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: Palette.ink),
-        ),
+        Text('Sound', textAlign: TextAlign.center, style: Palette.display()),
         const SizedBox(height: 6),
         const Text(
           'Pick a soundscape. It softens as your tubes fill.',
@@ -502,7 +511,9 @@ class _SoundSheetState extends State<SoundSheet> {
           childAspectRatio: 1.25,
           children: [
             for (final a in Ambience.values)
-              _AmbienceTile(ambience: a, selected: Sounds.ambience == a, onTap: () => _pick(a)),
+              Squish(
+                child: _AmbienceTile(ambience: a, selected: Sounds.ambience == a, onTap: () => _pick(a)),
+              ),
           ],
         ),
         const SizedBox(height: 14),

@@ -1,3 +1,4 @@
+import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Cozy paper-and-candy palette (matches the TikTok clips).
@@ -22,6 +23,10 @@ class Palette {
     Color(0xFFA066F0), // purple
     Color(0xFFFF8A3D), // orange
   ];
+
+  /// Rounded, playful display font for titles and big numbers.
+  static TextStyle display({double size = 26, Color color = ink, double spacing = 0}) =>
+      GoogleFonts.fredoka(fontSize: size, fontWeight: FontWeight.w700, color: color, letterSpacing: spacing);
 
   static const emoji = <String>['🟥', '🟨', '🟩', '🟦', '🟪', '🟧'];
 }

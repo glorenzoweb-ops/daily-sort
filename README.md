@@ -54,7 +54,9 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/game/solver.dart` | Breadth-first solver that finds the optimal solution. Every puzzle ships with a proven solution |
 | `lib/game/board.dart` | Pour rules |
 | `lib/game/game_controller.dart` | Game state, undo, restart, win detection, stats and streaks |
-| `lib/ui/board_view.dart` | Custom-painted board with lift, arc-and-drop pours, squash, shake, glow and win bounce |
+| `lib/ui/board_view.dart` | Custom-painted board: glass tubes on a wooden shelf, glossy ball buddies, pours with trails and squash, corks on finished tubes, and the win where colors stream into your painting |
+| `lib/ui/sky.dart` | Background sky that follows the player's local time (morning, day, sunset, starry night) |
+| `lib/ui/squish.dart` | Soft press feedback for every button |
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
 | `lib/services/premium.dart` | Hook for the future Daily Sort+ subscription |
 
