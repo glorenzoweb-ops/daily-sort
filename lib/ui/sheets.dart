@@ -11,6 +11,7 @@ import '../services/storage.dart';
 import 'palette.dart';
 import 'solve_art.dart';
 import 'squish.dart';
+import 'streak.dart';
 
 import 'package:google_fonts/google_fonts.dart';
 
@@ -293,13 +294,15 @@ class _ResultSheetState extends State<ResultSheet> {
           const _H('Statistics'),
           const SizedBox(height: 18),
         ],
-        if (g.puzzle.isPractice)
+        if (g.puzzle.isPractice) ...[
+          FreezeProgress(stats: stats, justEarned: g.earnedFreeze),
+          const SizedBox(height: 12),
           Text(
             'Unwind puzzles solved: ${widget.storage.practiceSolved}',
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 15, color: Palette.inkSoft, fontWeight: FontWeight.w800),
-          )
-        else
+          ),
+        ] else
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [

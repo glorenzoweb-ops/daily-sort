@@ -56,9 +56,12 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/game/game_controller.dart` | Game state, undo, restart, win detection, stats and streaks |
 | `lib/ui/board_view.dart` | Custom-painted board: glass tubes on a wooden shelf, glossy ball buddies, pours with trails and squash, corks on finished tubes, and the win where colors stream into your painting |
 | `lib/ui/sky.dart` | Background sky that follows the player's local time (morning, day, sunset, starry night) |
+| `lib/ui/streak.dart` | Flame streak counter, streak sheet, freeze progress, and milestone celebrations (3, 7, 14, 30, 50, 100, 200, 365 days) |
 | `lib/ui/squish.dart` | Soft press feedback for every button |
 | `lib/services/puzzles.dart` | Hands out puzzles with no waiting: saves daily puzzles on the device, prepares tomorrow's after a win and the next Unwind puzzle ahead of time |
 | `lib/services/background.dart` | Runs heavy work (sound synthesis, puzzle generation) off the UI thread on phones, between frames on the web |
+
+**Streaks.** Every 5 Unwind solves earn a streak freeze (bank up to 2). When you open the game after missing days, banked freezes cover them automatically (`Stats.applyFreezes`); a freeze keeps the streak but doesn't add a day.
 
 **Performance notes.** The board stamps pre-rendered images (glass, shelf, corks, balls, glows) instead of redrawing gradients and blurs every frame, and drops to ~24 fps when nothing is moving. The sky redraws its static parts every 2 minutes and moves clouds and stars at 20 fps. Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |

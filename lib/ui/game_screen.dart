@@ -13,6 +13,7 @@ import 'sky.dart';
 import 'squish.dart';
 import '../services/puzzles.dart';
 import 'sheets.dart';
+import 'streak.dart';
 
 class GameScreen extends StatefulWidget {
   final Storage storage;
@@ -59,6 +60,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> _loadDaily() async {
     final puzzle = await _puzzles.daily(DateTime.now());
     if (!mounted) return;
+    // Missed days? Banked streak freezes cover them.
+    final stats = widget.storage.stats;
+    final used = stats.applyFreezes(puzzle.number);
+    final lost = used == 0 && stats.streak == 0 && widget.storage.stats.streak > 0;
+    if (used > 0 || lost) await widget.storage.saveStats(stats);
+    if (used > 0) _toastFreezeUsed(used, stats.streak);
     setState(() {
       _daily?.dispose();
       _daily = GameController(puzzle, widget.storage);
@@ -121,9 +128,61 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     } else {
       Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchTomorrow(DateTime.now()));
     }
-    Future<void>.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) _openResults();
+    Future<void>.delayed(const Duration(milliseconds: 700), () async {
+      if (!mounted) return;
+      final g = _game;
+      if (g != null &&
+          !g.puzzle.isPractice &&
+          streakMilestones.contains(g.streakAfter) &&
+          g.streakAfter > g.streakBefore) {
+        _confetti.burst();
+        await showStreakMilestone(context, g.streakAfter);
+        if (!mounted) return;
+      }
+      _openResults();
     });
+  }
+
+  void _toastFreezeUsed(int used, int streak) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF2F6E95),
+          duration: const Duration(seconds: 5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Row(
+            children: [
+              const Icon(Icons.ac_unit_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  used == 1
+                      ? 'A streak freeze saved your $streak-day streak!'
+                      : '$used streak freezes saved your $streak-day streak!',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  void _openStreak() {
+    final d = _daily;
+    if (d == null) return;
+    showCozySheet(
+      context,
+      StreakSheet(
+        stats: widget.storage.stats,
+        today: d.puzzle.number,
+        solvedToday: d.status == GameStatus.won,
+        onUnwind: () => _setMode(true),
+      ),
+    );
   }
 
   void _openResults({bool statsOnly = false}) {
@@ -221,7 +280,26 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
             ),
             const SizedBox(height: 18),
-            _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
+                if (!p.isPractice) ...[
+                  const SizedBox(width: 10),
+                  Builder(
+                    builder: (context) {
+                      final stats = widget.storage.stats;
+                      return StreakFlame(
+                        streak: stats.currentStreak(p.number),
+                        litToday: g.status == GameStatus.won,
+                        freezes: stats.freezes,
+                        onTap: _openStreak,
+                      );
+                    },
+                  ),
+                ],
+              ],
+            ),
             if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
             const SizedBox(height: 8),
             Text(
