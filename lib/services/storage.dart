@@ -176,6 +176,21 @@ class Storage {
   bool twistSeen(String twist) => _prefs.getBool('twistSeen_$twist') ?? false;
   Future<void> setTwistSeen(String twist) => _prefs.setBool('twistSeen_$twist', true);
 
+  /// The name friends see on your results (empty until you pick one).
+  String get myName => _prefs.getString('myName') ?? '';
+  Future<void> setMyName(String v) => _prefs.setString('myName', v);
+
+  /// Whether we already asked for a name (so "Skip" sticks).
+  bool get askedName => _prefs.getBool('askedName') ?? false;
+  Future<void> setAskedName() => _prefs.setBool('askedName', true);
+
+  String? get friendsRaw => _prefs.getString('friends');
+  Future<void> setFriendsRaw(String v) => _prefs.setString('friends', v);
+
+  /// Times this device tapped "Start free trial" before payments were live.
+  int get premiumInterest => _prefs.getInt('premiumInterest') ?? 0;
+  Future<void> addPremiumInterest() => _prefs.setInt('premiumInterest', premiumInterest + 1);
+
   bool get hapticsOn => _prefs.getBool('haptics') ?? true;
   Future<void> setHaptics(bool v) => _prefs.setBool('haptics', v);
 }

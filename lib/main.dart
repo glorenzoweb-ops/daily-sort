@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'services/feedback.dart';
+import 'services/link.dart';
 import 'services/premium.dart';
 import 'services/sound.dart';
 import 'services/sound/ambience.dart';
@@ -22,14 +23,17 @@ Future<void> main() async {
   Sounds.music = storage.musicOn;
   Sounds.init(); // not awaited: the game never waits on audio
   // Swap for a RevenueCat-backed implementation when payments go live.
-  final premium = ComingSoonPremium();
-  runApp(DailySortApp(storage: storage, premium: premium));
+  final premium = const bool.fromEnvironment('PREMIUM') ? UnlockedPremium() : ComingSoonPremium();
+  runApp(DailySortApp(storage: storage, premium: premium, incomingResult: incomingResultParam()));
 }
 
 class DailySortApp extends StatelessWidget {
   final Storage storage;
   final PremiumService premium;
-  const DailySortApp({super.key, required this.storage, required this.premium});
+
+  /// A friend's result from the link that opened the app (`?r=...`).
+  final String? incomingResult;
+  const DailySortApp({super.key, required this.storage, required this.premium, this.incomingResult});
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +46,7 @@ class DailySortApp extends StatelessWidget {
       title: 'Daily Sort',
       debugShowCheckedModeBanner: false,
       theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),
-      home: GameScreen(storage: storage, premium: premium),
+      home: GameScreen(storage: storage, premium: premium, incomingResult: incomingResult),
     );
   }
 }

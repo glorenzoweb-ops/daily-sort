@@ -35,6 +35,7 @@ String buildShareText({
   required int attempts,
   required List<int> moveColors,
   int streak = 0,
+  String? link,
 }) {
   final b = StringBuffer()
     ..writeln('Daily Sort #${puzzle.number} ${'⭐' * stars}${'☆' * (3 - stars)}')
@@ -48,9 +49,12 @@ String buildShareText({
   }
   b
     ..writeln()
-    ..write(shareUrl);
+    ..write(link == null ? shareUrl : 'Can you beat me? $link');
   return b.toString();
 }
+
+/// The link that puts your result on a friend's board when they open it.
+String resultLink(String encoded) => '$shareUrl?r=$encoded';
 
 enum ShareOutcome { shared, copied, failed }
 

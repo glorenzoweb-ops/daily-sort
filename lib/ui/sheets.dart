@@ -5,10 +5,14 @@ import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/friends.dart';
 import '../services/premium.dart';
 import '../services/share.dart';
 import '../services/storage.dart';
+import 'archive.dart';
 import 'palette.dart';
+import 'picture.dart';
+import 'social.dart';
 import 'solve_art.dart';
 import 'squish.dart';
 import 'streak.dart';
@@ -62,9 +66,9 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
   );
 }
 
-class _H extends StatelessWidget {
+class SheetTitle extends StatelessWidget {
   final String text;
-  const _H(this.text);
+  const SheetTitle(this.text, {super.key});
   @override
   Widget build(BuildContext context) => Text(text, textAlign: TextAlign.center, style: Palette.display());
 }
@@ -95,7 +99,7 @@ class HowToSheet extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _H('How to play'),
+        const SheetTitle('How to play'),
         const SizedBox(height: 16),
         row('👆', 'Tap a tube to pick up its top ball, then tap another tube to pour it in.'),
         row('🎨', 'You can only pour onto the same color, or into an empty tube.'),
@@ -109,7 +113,7 @@ class HowToSheet extends StatelessWidget {
           'Want more? Tap the leaf for Unwind: endless puzzles with no move limit, a breathing glow and soundscapes.',
         ),
         const SizedBox(height: 20),
-        _BigButton(label: "Let's sort", onTap: () => Navigator.pop(context)),
+        BigButton(label: "Let's sort", onTap: () => Navigator.pop(context)),
       ],
     );
   }
@@ -124,12 +128,27 @@ class ResultSheet extends StatefulWidget {
   final PremiumService premium;
   final bool showResult;
   final VoidCallback onPractice;
+
+  /// Friends' results for this puzzle, and yours (null if not solved).
+  final List<FriendResult> friends;
+  final BoardEntry? me;
+  final VoidCallback onFriends;
+  final Future<void> Function() onShareToFriends;
+  final VoidCallback onArchive;
+  final VoidCallback onPlus;
+
   const ResultSheet({
     super.key,
     required this.game,
     required this.storage,
     required this.premium,
     required this.onPractice,
+    required this.onFriends,
+    required this.onShareToFriends,
+    required this.onArchive,
+    required this.onPlus,
+    this.friends = const [],
+    this.me,
     this.showResult = true,
   });
 
@@ -170,23 +189,39 @@ class _ResultSheetState extends State<ResultSheet> {
   String _text() {
     final g = widget.game;
     final stats = widget.storage.stats;
+    final streak = g.archive ? 0 : stats.currentStreak(g.puzzle.number);
+    final name = widget.storage.myName;
     return buildShareText(
       puzzle: g.puzzle,
       moves: g.movesUsed,
       stars: g.stars,
       attempts: g.attempts,
       moveColors: g.moveColors,
-      streak: stats.currentStreak(g.puzzle.number),
+      streak: streak,
+      link: g.puzzle.isPractice
+          ? null
+          : resultLink(
+              FriendResult(
+                name: name.isEmpty ? 'A friend' : name,
+                number: g.puzzle.number,
+                moves: g.movesUsed,
+                attempts: g.attempts,
+                streak: streak,
+              ).encode(),
+            ),
     );
   }
 
   Future<void> _shareImage() async {
     if (_sharing) return;
-    setState(() => _sharing = true);
     final g = widget.game;
     final p = g.puzzle;
+    if (!p.isPractice) await ensureName(context, widget.storage);
+    if (!mounted) return;
+    setState(() => _sharing = true);
     try {
       final png = await renderSolveCard(
+        scene: p.isPractice ? sceneForBoard(p.start) : sceneForNumber(p.number),
         pours: g.pours,
         tubeCount: p.start.tubeCount,
         title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
@@ -205,6 +240,7 @@ class _ResultSheetState extends State<ResultSheet> {
   bool _copied = false;
 
   Future<void> _copy() async {
+    if (!widget.game.puzzle.isPractice) await ensureName(context, widget.storage);
     await Clipboard.setData(ClipboardData(text: _text()));
     if (!mounted) return;
     setState(() => _copied = true);
@@ -235,7 +271,7 @@ class _ResultSheetState extends State<ResultSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (showResult) ...[
-          _H(perfect ? 'Perfect sort!' : 'Sorted!'),
+          SheetTitle(perfect ? 'Perfect sort!' : 'Sorted!'),
           const SizedBox(height: 8),
           _Stars(count: g.stars),
           const SizedBox(height: 8),
@@ -244,9 +280,19 @@ class _ResultSheetState extends State<ResultSheet> {
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 16, color: Palette.inkSoft, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 150,
+            child: PictureFrame(
+              scene: g.puzzle.isPractice ? sceneForBoard(g.puzzle.start) : sceneForNumber(g.puzzle.number),
+              colored: const {0, 1, 2, 3, 4},
+              colors: g.puzzle.colors,
+              solved: true,
+            ),
+          ),
+          const SizedBox(height: 14),
           AspectRatio(
-            aspectRatio: 1.15,
+            aspectRatio: 1.6,
             child: Container(
               decoration: BoxDecoration(
                 color: Palette.background,
@@ -264,7 +310,7 @@ class _ResultSheetState extends State<ResultSheet> {
             style: TextStyle(fontSize: 13, color: Palette.inkSoft, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 16),
-          _BigButton(
+          BigButton(
             label: _sharing ? 'Painting…' : 'Share my painting',
             icon: Icons.ios_share_rounded,
             onTap: _shareImage,
@@ -273,7 +319,7 @@ class _ResultSheetState extends State<ResultSheet> {
           Row(
             children: [
               Expanded(
-                child: _SmallButton(
+                child: SmallButton(
                   label: _copied ? 'Copied!' : 'Copy emoji',
                   icon: _copied ? Icons.check_rounded : Icons.grid_view_rounded,
                   onTap: _copy,
@@ -281,7 +327,7 @@ class _ResultSheetState extends State<ResultSheet> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _SmallButton(
+                child: SmallButton(
                   label: g.puzzle.isPractice ? 'Next puzzle' : 'Unwind',
                   icon: Icons.spa_rounded,
                   onTap: widget.onPractice,
@@ -291,7 +337,7 @@ class _ResultSheetState extends State<ResultSheet> {
           ),
           const SizedBox(height: 22),
         ] else ...[
-          const _H('Statistics'),
+          const SheetTitle('Statistics'),
           const SizedBox(height: 18),
         ],
         if (g.puzzle.isPractice) ...[
@@ -312,8 +358,28 @@ class _ResultSheetState extends State<ResultSheet> {
               _Stat('$perfectPct%', 'Perfect'),
             ],
           ),
+        if (!g.puzzle.isPractice && !g.archive) ...[
+          const SizedBox(height: 22),
+          _FriendsPreview(
+            rows: rankDay(widget.friends, me: widget.me),
+            onSeeAll: widget.onFriends,
+            onShare: widget.onShareToFriends,
+          ),
+        ],
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: SmallButton(label: 'Past puzzles', icon: Icons.calendar_month_rounded, onTap: widget.onArchive),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SmallButton(label: 'Friends', icon: Icons.people_alt_rounded, onTap: widget.onFriends),
+            ),
+          ],
+        ),
         const SizedBox(height: 22),
-        if (solved && !g.puzzle.isPractice) ...[
+        if (solved && !g.puzzle.isPractice && !g.archive) ...[
           const Text(
             'Next daily puzzle in',
             textAlign: TextAlign.center,
@@ -326,7 +392,76 @@ class _ResultSheetState extends State<ResultSheet> {
           ),
           const SizedBox(height: 18),
         ],
-        PremiumTeaser(premium: widget.premium),
+        if (!widget.premium.isPremium)
+          PlusBanner(text: 'Daily Sort+: every past puzzle and picture', onTap: widget.onPlus),
+      ],
+    );
+  }
+}
+
+/// Top of today's friends board inside the result sheet.
+class _FriendsPreview extends StatelessWidget {
+  final List<BoardEntry> rows;
+  final VoidCallback onSeeAll;
+  final Future<void> Function() onShare;
+  const _FriendsPreview({required this.rows, required this.onSeeAll, required this.onShare});
+
+  @override
+  Widget build(BuildContext context) {
+    final friendsOnly = rows.where((r) => !r.isMe).isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text('Friends today', style: Palette.display(size: 20)),
+            const Spacer(),
+            if (!friendsOnly)
+              TextButton(
+                onPressed: onSeeAll,
+                child: const Text(
+                  'See all',
+                  style: TextStyle(fontWeight: FontWeight.w900, color: Palette.ink),
+                ),
+              ),
+          ],
+        ),
+        if (friendsOnly)
+          Squish(
+            child: Material(
+              color: Palette.background,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: onShare,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      const Text('👋', style: TextStyle(fontSize: 26)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          rows.isEmpty
+                              ? 'Invite friends to play. When they share their result, you\'ll see who sorted it in fewer moves.'
+                              : 'Send your result to friends. When they share back, you\'ll see who sorted it in fewer moves.',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.3,
+                            fontWeight: FontWeight.w700,
+                            color: Palette.ink,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.ios_share_rounded, color: Palette.ink),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )
+        else
+          for (var i = 0; i < rows.length && i < 3; i++) BoardRow(rank: i + 1, e: rows[i]),
       ],
     );
   }
@@ -357,11 +492,11 @@ class _Stars extends StatelessWidget {
   }
 }
 
-class _SmallButton extends StatelessWidget {
+class SmallButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _SmallButton({required this.label, required this.icon, required this.onTap});
+  const SmallButton({super.key, required this.label, required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) => Squish(
@@ -395,11 +530,11 @@ class _Stat extends StatelessWidget {
   );
 }
 
-class _BigButton extends StatelessWidget {
+class BigButton extends StatelessWidget {
   final String label;
   final IconData? icon;
   final VoidCallback onTap;
-  const _BigButton({required this.label, required this.onTap, this.icon});
+  const BigButton({super.key, required this.label, required this.onTap, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -422,43 +557,6 @@ class _BigButton extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// "Daily Sort+" card. Payments aren't live yet, so it says "coming soon".
-class PremiumTeaser extends StatelessWidget {
-  final PremiumService premium;
-  const PremiumTeaser({super.key, required this.premium});
-
-  @override
-  Widget build(BuildContext context) {
-    if (premium.isPremium) return const SizedBox.shrink();
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(20)),
-      child: const Row(
-        children: [
-          Text('✨', style: TextStyle(fontSize: 28)),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Daily Sort+ is coming',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Palette.ink),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Every past puzzle, hints and a par-or-bust hard mode.',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Palette.inkSoft),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -58,14 +58,23 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/ui/sky.dart` | Background sky that follows the player's local time (morning, day, sunset, starry night) |
 | `lib/ui/streak.dart` | Flame streak counter, streak sheet, freeze progress, and milestone celebrations (3, 7, 14, 30, 50, 100, 200, 365 days) |
 | `lib/ui/squish.dart` | Soft press feedback for every button |
+| `lib/ui/picture.dart` | Picture of the day: 8 coloring-book scenes drawn in code. Each ball color paints one part, which fills in when you complete that color's tube. The title is revealed on solve |
+| `lib/ui/social.dart`, `lib/services/friends.dart` | Friends board. Results travel in the share link (`?r=2-13-1-5-Ana`), so there's no server: opening a friend's link puts them on your board for that day |
+| `lib/ui/archive.dart` | Past puzzles (with their pictures) and the Daily Sort+ paywall |
 | `lib/services/puzzles.dart` | Hands out puzzles with no waiting: saves daily puzzles on the device, prepares tomorrow's after a win and the next Unwind puzzle ahead of time |
 | `lib/services/background.dart` | Runs heavy work (sound synthesis, puzzle generation) off the UI thread on phones, between frames on the web |
 
 **Streaks.** Every 5 Unwind solves earn a streak freeze (bank up to 2). When you open the game after missing days, banked freezes cover them automatically (`Stats.applyFreezes`); a freeze keeps the streak but doesn't add a day.
 
+**Picture of the day.** `sceneForNumber(n)` picks the day's scene, the same for everyone and never the same two days running. Add scenes at the end of `scenes` in `lib/ui/picture.dart`: each is 5 paths on a 200 x 100 canvas, one per ball color (red, yellow, green, blue, purple). On 4-color days the purple part starts colored. The share image now shows the picture with the solve painting under it.
+
+**Friends.** Sharing asks once for a first name and adds a link to your result. When a friend opens it, they see a toast ("Ana solved today's puzzle in 12 moves. Your turn!"), a chip above the board, and a ranked board (fewest moves, then fewest tries). Results are kept on the device for 30 days. A live board without shared links would need a small backend (for example Supabase); the link format stays the same.
+
+**Archive and Daily Sort+.** Today's puzzle is always free. The last 3 days of the archive are free (`freeArchiveDays`), and puzzles you already played stay open. Older days open the paywall (yearly $19.99 with a 7-day trial, or $2.99 a month). Until payments are wired in, the button explains that Plus opens with the store release and counts the tap (`premiumInterest` in storage) so you can see demand. Build with `--dart-define=PREMIUM=true` to test everything unlocked. Archive solves never touch the streak or stats.
+
 **Performance notes.** The board stamps pre-rendered images (glass, shelf, corks, balls, glows) instead of redrawing gradients and blurs every frame, and drops to ~24 fps when nothing is moving. The sky redraws its static parts every 2 minutes and moves clouds and stars at 20 fps. Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
-| `lib/services/premium.dart` | Hook for the future Daily Sort+ subscription |
+| `lib/services/premium.dart` | Daily Sort+ plans, archive gating, and the hook for real payments |
 
 Puzzle #1 is Nov 20, 2026. The weekly rhythm (`weekdaySpecs` in `lib/game/daily.dart`):
 
@@ -91,7 +100,6 @@ Payments aren't wired in. When you're ready:
 
 1. Add RevenueCat (`purchases_flutter`) and create the product in App Store Connect and Play Console. RevenueCat also handles Stripe for web.
 2. Write a `PremiumService` subclass backed by RevenueCat and swap it in `lib/main.dart` (replace `ComingSoonPremium`).
-3. Gate features with `premium.isUnlocked(PremiumFeature.archive | hints | hardMode)`:
-   - **Archive:** `puzzleForDay(dayForNumber(n))` already returns any past puzzle.
+3. The archive is already gated (`archiveLocked` in `lib/services/premium.dart`) and the paywall calls `premium.purchase(plan)`. Set `canPurchase` to true in your RevenueCat service. Still to gate:
    - **Hints:** `solveOptimal(game.board).first` is the best next move from any position.
    - **Hard mode:** move limit = par (`defaultMoveSlack = 0`).

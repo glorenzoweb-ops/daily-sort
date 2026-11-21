@@ -28,6 +28,9 @@ class Puzzles {
     return p;
   }
 
+  /// A past daily puzzle for the archive (not cached: it's a one-off).
+  Future<DailyPuzzle> archive(int number) => runInBackground(() => puzzleForDay(dayForNumber(number)));
+
   /// Quietly prepares tomorrow's puzzle (call it at a calm moment).
   Future<void> prefetchTomorrow(DateTime now) async {
     final day = dayOf(now).add(const Duration(days: 1));

@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../game/game_controller.dart';
 import '../services/sound.dart';
 import 'palette.dart';
+import 'picture.dart';
 
 /// "Your solve is a painting": every pour becomes a ribbon flowing from one
 /// tube's column to another, top to bottom in move order. No two different
@@ -242,6 +243,7 @@ class SolveArtPlayerState extends State<SolveArtPlayer> with SingleTickerProvide
 
 /// Renders the shareable 1080x1350 image (Instagram/TikTok-photo friendly).
 Future<Uint8List> renderSolveCard({
+  required Scene scene,
   required List<PourInfo> pours,
   required int tubeCount,
   required String title,
@@ -278,8 +280,30 @@ Future<Uint8List> renderSolveCard({
     _star(canvas, Offset(w / 2 + (i - 1) * 86, 290), 36, i < stars ? Palette.gold : const Color(0xFFE6DDCC));
   }
 
-  final card = RRect.fromRectAndRadius(const Rect.fromLTWH(70, 360, w - 140, 860), const Radius.circular(48));
-  canvas.drawRRect(card.shift(const Offset(0, 10)), Paint()..color = const Color(0x12000000));
+  // The picture of the day, in its wooden frame.
+  const frame = Rect.fromLTWH(70, 360, w - 140, (w - 140) / 2 + 28);
+  final frameR = RRect.fromRectAndRadius(frame, const Radius.circular(28));
+  canvas.drawRRect(frameR.shift(const Offset(0, 12)), Paint()..color = const Color(0x22000000));
+  canvas.drawRRect(
+    frameR,
+    Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFE2B98A), Color(0xFFB98552)],
+      ).createShader(frame),
+  );
+  final inner = frame.deflate(14);
+  canvas.save();
+  canvas.clipRRect(RRect.fromRectAndRadius(inner, const Radius.circular(16)));
+  canvas.translate(inner.left, inner.top);
+  paintScene(canvas, inner.size, scene, const [1, 1, 1, 1, 1]);
+  canvas.restore();
+  text(scene.title, frame.bottom + 18, 40, Palette.ink, FontWeight.w900);
+
+  // The solve painting below it.
+  final card = RRect.fromRectAndRadius(Rect.fromLTWH(250, frame.bottom + 84, w - 500, 330), const Radius.circular(40));
+  canvas.drawRRect(card.shift(const Offset(0, 8)), Paint()..color = const Color(0x12000000));
   canvas.drawRRect(card, Paint()..color = Colors.white);
   canvas.save();
   canvas.translate(card.left, card.top);
