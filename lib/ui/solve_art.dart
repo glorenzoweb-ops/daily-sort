@@ -212,7 +212,7 @@ class SolveArtPlayerState extends State<SolveArtPlayer> with SingleTickerProvide
               opacity: _c.isAnimating ? 0 : 1,
               duration: const Duration(milliseconds: 200),
               child: Material(
-                color: Palette.ink,
+                color: Palette.navy,
                 shape: const StadiumBorder(),
                 child: InkWell(
                   customBorder: const StadiumBorder(),
@@ -255,7 +255,7 @@ Future<Uint8List> renderSolveCard({
   const w = 1080.0, h = 1350.0;
   final rec = ui.PictureRecorder();
   final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-  canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = Palette.background);
+  canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0xFFFFF7EA));
   final lines = Paint()..color = Palette.gridLine;
   for (double y = 0; y < h; y += 48) {
     canvas.drawRect(Rect.fromLTWH(0, y, w, 2), lines);
@@ -273,8 +273,8 @@ Future<Uint8List> renderSolveCard({
     tp.paint(canvas, Offset((w - tp.width) / 2, y));
   }
 
-  text(title, 70, 84, Palette.ink, FontWeight.w900);
-  text(subtitle, 178, 40, Palette.inkSoft, FontWeight.w700);
+  text(title, 70, 84, Palette.navy, FontWeight.w900);
+  text(subtitle, 178, 40, const Color(0xFF8A8070), FontWeight.w700);
   // Stars
   for (var i = 0; i < 3; i++) {
     _star(canvas, Offset(w / 2 + (i - 1) * 86, 290), 36, i < stars ? Palette.gold : const Color(0xFFE6DDCC));
@@ -299,7 +299,7 @@ Future<Uint8List> renderSolveCard({
   canvas.translate(inner.left, inner.top);
   paintScene(canvas, inner.size, scene, const [1, 1, 1, 1, 1]);
   canvas.restore();
-  text(scene.title, frame.bottom + 18, 40, Palette.ink, FontWeight.w900);
+  text(scene.title, frame.bottom + 18, 40, Palette.navy, FontWeight.w900);
 
   // The solve painting below it.
   final card = RRect.fromRectAndRadius(Rect.fromLTWH(250, frame.bottom + 84, w - 500, 330), const Radius.circular(40));
@@ -310,7 +310,7 @@ Future<Uint8List> renderSolveCard({
   SolveArtPainter(pours: pours, tubeCount: tubeCount).paint(canvas, Size(card.width, card.height));
   canvas.restore();
 
-  text(footer, 1250, 34, Palette.inkSoft, FontWeight.w800);
+  text(footer, 1250, 34, const Color(0xFF8A8070), FontWeight.w800);
 
   final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
   final bytes = await img.toByteData(format: ui.ImageByteFormat.png);

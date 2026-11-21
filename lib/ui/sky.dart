@@ -4,10 +4,12 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import 'ambient_clock.dart';
+import 'palette.dart';
 
 /// A soft sky behind the game that follows the player's local time: peach
 /// mornings, clear days, golden sunsets and a starry lavender night. Kept
-/// pastel so the dark text on top always stays readable.
+/// pastel so the dark text on top always stays readable. In dark mode it is
+/// a deep blue night instead, under light text.
 class SkyBackground extends StatefulWidget {
   /// Override the clock (tests, previews). Hours, 0..24.
   final double? hour;
@@ -63,6 +65,9 @@ class _Mood {
 }
 
 const _night = _Mood(Color(0xFFD5D0F2), Color(0xFFE6E0F6), Color(0xFFF3EEF9), Color(0xFFDCD5EE), Color(0xFFFFF1C9));
+
+/// Dark mode: a deep blue night at every hour.
+const _deepNight = _Mood(Color(0xFF0E1024), Color(0xFF181B36), Color(0xFF23264A), Color(0xFF1A1D38), Color(0xFF6E6AA8));
 const _morning = _Mood(Color(0xFFFFD9C4), Color(0xFFFFE9D6), Color(0xFFFFF6E8), Color(0xFFF3E1C9), Color(0xFFFFE2A8));
 const _day = _Mood(Color(0xFFCBE7F7), Color(0xFFE6F3F6), Color(0xFFFFF7EA), Color(0xFFE5EED6), Color(0xFFFFF4C2));
 const _sunset = _Mood(Color(0xFFFFC2A8), Color(0xFFFFD6CF), Color(0xFFFFEBD6), Color(0xFFF5D3C2), Color(0xFFFFB86B));
@@ -95,6 +100,7 @@ const _keys = <(double, _Mood)>[
 }
 
 _Mood _moodAt(double h) {
+  if (Palette.dark) return _deepNight;
   for (var i = 0; i < _keys.length - 1; i++) {
     final (h0, m0) = _keys[i];
     final (h1, m1) = _keys[i + 1];
@@ -137,11 +143,12 @@ class SkyPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final now = DateTime.now();
-    final h = hourOverride ?? now.hour + now.minute / 60;
+    // Dark mode keeps the sky at night, whatever the time.
+    final h = Palette.dark ? 0.0 : hourOverride ?? now.hour + now.minute / 60;
     // The gradient, sun or moon, hills and light change only with the clock:
     // draw them into one image every 10 minutes. (Making the image means a
     // read back from the graphics card, so not too often.)
-    final bucket = (h * 6).floor();
+    final bucket = Palette.dark ? -1 : (h * 6).floor();
     if (_base == null || _baseSize != size || _baseBucket != bucket || _baseDpr != dpr) {
       _base?.dispose();
       _base = _render(size, dpr, (c) => _paintStatic(c, size, h));

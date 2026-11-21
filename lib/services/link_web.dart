@@ -9,12 +9,23 @@ String? incomingResultParam() {
   }
 }
 
+/// The `x` parameter (a friend's reaction to your result), if any.
+String? incomingReactionParam() {
+  try {
+    return Uri.base.queryParameters['x'];
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Removes `?r=...` from the address bar so a reload doesn't re-add it.
 void clearIncomingParam() {
   try {
     final u = Uri.base;
-    if (!u.queryParameters.containsKey('r')) return;
-    final q = Map<String, String>.of(u.queryParameters)..remove('r');
+    if (!u.queryParameters.containsKey('r') && !u.queryParameters.containsKey('x')) return;
+    final q = Map<String, String>.of(u.queryParameters)
+      ..remove('r')
+      ..remove('x');
     final query = q.isEmpty ? '' : '?${Uri(queryParameters: q).query}';
     final clean = '${u.path}$query${u.hasFragment ? '#${u.fragment}' : ''}';
     web.window.history.replaceState(null, '', clean);

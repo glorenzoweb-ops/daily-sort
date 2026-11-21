@@ -14,7 +14,9 @@ import 'squish.dart';
 import '../services/friends.dart';
 import '../services/link.dart';
 import '../services/puzzles.dart';
+import '../services/reactions.dart';
 import '../services/share.dart';
+import 'appearance.dart';
 import 'archive.dart';
 import 'picture.dart';
 import 'sheets.dart';
@@ -25,10 +27,17 @@ import 'warmup.dart';
 class GameScreen extends StatefulWidget {
   final Storage storage;
   final PremiumService premium;
+  final Appearance appearance;
 
   /// A friend's result from the link that opened the app (`?r=...`).
   final String? incomingResult;
-  const GameScreen({super.key, required this.storage, required this.premium, this.incomingResult});
+  const GameScreen({
+    super.key,
+    required this.storage,
+    required this.premium,
+    required this.appearance,
+    this.incomingResult,
+  });
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -44,6 +53,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _inUnwind = false;
   late final Puzzles _puzzles = Puzzles(widget.storage);
   late final Friends _friends = Friends(widget.storage);
+  late final Reactions _reactions = Reactions(widget.storage);
+  Reaction? _incomingReaction;
   final _confetti = ConfettiController();
   GameController? get _game => _inUnwind ? _unwind : (_archive ?? _daily);
 
@@ -101,6 +112,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await showCozySheet(context, const HowToSheet());
     }
     if (fromFriend != null) _toastFriend(fromFriend, puzzle.number);
+    final x = _incomingReaction;
+    if (x != null) {
+      _incomingReaction = null;
+      _toastReaction(x);
+    }
   }
 
   bool _tookIncoming = false;
@@ -110,7 +126,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (_tookIncoming) return null;
     _tookIncoming = true;
     final r = FriendResult.decode(widget.incomingResult);
+    final x = Reaction.decode(incomingReactionParam());
     clearIncomingParam();
+    if (x != null && x.number <= today && await _reactions.receive(x, today: today)) _incomingReaction = x;
     if (r == null || r.number > today) return null;
     final added = await _friends.add(r, today: today);
     return added ? r : null;
@@ -137,7 +155,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: Palette.ink,
+          backgroundColor: Palette.navy,
           duration: const Duration(seconds: 6),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
           content: Row(
@@ -145,7 +163,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               Avatar(r.name, size: 30),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(text, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                child: Text(
+                  text,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white),
+                ),
               ),
             ],
           ),
@@ -154,6 +175,72 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
       );
     });
+  }
+
+  void _toastReaction(Reaction x) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final mine = widget.storage.day(x.number);
+      final what = x.number == _today ? 'today\'s solve' : 'your #${x.number}';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.navy,
+          duration: const Duration(seconds: 6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Row(
+            children: [
+              Text(x.symbol, style: const TextStyle(fontSize: 28)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  mine?.solved ?? false
+                      ? '${x.from} sent ${x.symbol} for $what!'
+                      : '${x.from} sent you ${x.symbol}. Solve today\'s puzzle and send yours back!',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(label: 'Board', textColor: Palette.gold, onPressed: _openFriends),
+          persist: false,
+        ),
+      );
+    });
+  }
+
+  /// Shares a reaction to a friend's result today (with your own result
+  /// when you've solved, so you land on their board too).
+  Future<void> _react(BoardEntry friend, int emoji) async {
+    final name = await ensureName(context, widget.storage);
+    final d = _daily;
+    final today = _today;
+    String? mine;
+    if (d != null && d.status == GameStatus.won) {
+      mine = FriendResult(
+        name: name.isEmpty ? 'A friend' : name,
+        number: d.puzzle.number,
+        moves: d.movesUsed,
+        attempts: d.attempts,
+        streak: widget.storage.stats.currentStreak(d.puzzle.number),
+      ).encode();
+    }
+    final text = buildReactionText(
+      to: friend.name,
+      number: today,
+      toMoves: friend.moves,
+      emoji: emoji,
+      from: name.isEmpty ? 'A friend' : name,
+      myResult: mine,
+    );
+    final r = await shareResult(text);
+    if (r == ShareOutcome.failed) return;
+    await _reactions.markSent(friend.name, today, emoji, today: today);
+    if (r == ShareOutcome.copied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Copied. Paste it to ${friend.name}!'), behavior: SnackBarBehavior.floating),
+      );
+    }
   }
 
   int get _today => _daily?.puzzle.number ?? puzzleNumberFor(DateTime.now());
@@ -185,6 +272,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         attempts: d.attempts,
         moveColors: d.moveColors,
         streak: widget.storage.stats.currentStreak(d.puzzle.number),
+        hints: widget.storage.hintsUsed(d.puzzle.number),
         link: resultLink(
           FriendResult(
             name: name.isEmpty ? 'A friend' : name,
@@ -217,6 +305,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         today: _today,
         me: _myEntry(),
         onInvite: _shareToFriends,
+        reactions: _reactions,
+        onReact: _react,
       ),
     ).then((_) {
       if (mounted) setState(() {});
@@ -240,12 +330,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _openPaywall() async {
+  Future<void> _openPaywall({bool reopenArchive = true}) async {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
     final ok = await showCozySheet<bool>(context, PaywallSheet(premium: widget.premium, storage: widget.storage));
     if (ok == true && mounted) {
       setState(() {});
-      _openArchive();
+      if (reopenArchive) _openArchive();
     }
   }
 
@@ -306,11 +396,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _openSound() {
+  void _openSettings() {
     showCozySheet(
       context,
-      SoundSheet(
+      SettingsSheet(
         storage: widget.storage,
+        appearance: widget.appearance,
         onChanged: () {
           if (mounted) setState(() {});
         },
@@ -360,7 +451,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   used == 1
                       ? 'A streak freeze saved your $streak-day streak!'
                       : '$used streak freezes saved your $streak-day streak!',
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white),
                 ),
               ),
             ],
@@ -368,6 +459,46 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
       );
     });
+  }
+
+  /// Free hints are counted on daily puzzles; Unwind and Plus are unlimited.
+  bool _hintsMetered(GameController g) => !g.puzzle.isPractice && !widget.premium.isUnlocked(PremiumFeature.hints);
+
+  int _freeHintsLeft(GameController g) =>
+      (freeHintsPerDay - widget.storage.hintsUsed(g.puzzle.number)).clamp(0, freeHintsPerDay);
+
+  String _hintLabel(GameController g) {
+    if (!_hintsMetered(g)) return 'Hint';
+    return _freeHintsLeft(g) > 0 ? 'Free hint' : 'More hints';
+  }
+
+  Future<void> _useHint() async {
+    final g = _game;
+    if (g == null || g.status != GameStatus.playing) return;
+    if (_hintsMetered(g) && _freeHintsLeft(g) == 0) {
+      _openPaywall(reopenArchive: false);
+      return;
+    }
+    if (!g.findHint()) return;
+    if (!g.puzzle.isPractice) await widget.storage.addHint(g.puzzle.number);
+    if (!mounted) return;
+    setState(() {});
+    if (g.hintUndo > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.navy,
+          duration: const Duration(seconds: 5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Text(
+            g.hintUndo == 1
+                ? 'Undo 1 move first. From here it can\'t be sorted in the moves left.'
+                : 'Undo ${g.hintUndo} moves first. From here it can\'t be sorted in the moves left.',
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white),
+          ),
+        ),
+      );
+    }
   }
 
   void _openStreak() {
@@ -450,13 +581,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         'How to play',
                         () => showCozySheet(context, const HowToSheet()),
                       ),
-                      _IconBtn(
-                        Sounds.ambience != Ambience.off || Sounds.music
-                            ? Icons.music_note_rounded
-                            : (Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
-                        'Sound and soundscapes',
-                        _openSound,
-                      ),
+                      _IconBtn(Icons.tune_rounded, 'Settings', _openSettings),
                       const Spacer(),
                       _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
                       _IconBtn(
@@ -487,7 +612,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   : (g.archive
                         ? '#${p.number}  ·  ${dayLabel(p.day)}  ·  from the archive'
                         : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}'),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
             ),
             const SizedBox(height: 18),
             Row(
@@ -565,7 +690,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: BoardView(
-                            key: ObjectKey(g),
+                            // A new look means new ball and glass images.
+                            key: ValueKey((g, Palette.dark, Palette.colorblind)),
                             game: g,
                             onWinAnimationDone: _onWin,
                             breathe: p.isPractice,
@@ -577,7 +703,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 },
               ),
             ),
-            _BottomBar(game: g, onResults: _openResults, onNext: _startPractice),
+            _BottomBar(
+              game: g,
+              onResults: _openResults,
+              onNext: _startPractice,
+              onHint: _useHint,
+              hintLabel: _hintLabel(g),
+            ),
             const SizedBox(height: 16),
           ],
         );
@@ -594,12 +726,12 @@ class _TodayPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Squish(
     child: Material(
-      color: Colors.white,
-      shape: const StadiumBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
+      color: Palette.card,
+      shape: StadiumBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
       child: InkWell(
         customBorder: const StadiumBorder(),
         onTap: onTap,
-        child: const Padding(
+        child: Padding(
           padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -628,10 +760,10 @@ class _MovesPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF34344F), Palette.ink],
+          colors: [Color(0xFF34344F), Palette.navy],
         ),
         borderRadius: BorderRadius.circular(30),
         border: Border.all(color: const Color(0x33FFFFFF)),
@@ -671,7 +803,15 @@ class _BottomBar extends StatelessWidget {
   final GameController game;
   final VoidCallback onResults;
   final VoidCallback onNext;
-  const _BottomBar({required this.game, required this.onResults, required this.onNext});
+  final VoidCallback onHint;
+  final String hintLabel;
+  const _BottomBar({
+    required this.game,
+    required this.onResults,
+    required this.onNext,
+    required this.onHint,
+    required this.hintLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -704,10 +844,10 @@ class _BottomBar extends StatelessWidget {
             Squish(
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  backgroundColor: Colors.white,
+                  backgroundColor: Palette.card,
                   foregroundColor: Palette.ink,
                   minimumSize: const Size(120, 56),
-                  side: const BorderSide(color: Palette.tubeStroke, width: 2),
+                  side: BorderSide(color: Palette.tubeStroke, width: 2),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
                   textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                 ),
@@ -745,6 +885,15 @@ class _BottomBar extends StatelessWidget {
           children: [
             _RoundAction(Icons.undo_rounded, 'Undo', g.canUndo ? g.undo : null),
             const SizedBox(width: 18),
+            _RoundAction(
+              hintLabel == 'More hints' && g.hint == null && g.hintUndo == 0
+                  ? Icons.lock_rounded
+                  : Icons.lightbulb_rounded,
+              hintLabel,
+              onHint,
+              glow: g.hint != null || g.hintUndo > 0,
+            ),
+            const SizedBox(width: 18),
             _RoundAction(Icons.refresh_rounded, 'Restart', g.history.isNotEmpty ? g.restart : null),
           ],
         );
@@ -773,7 +922,10 @@ class _RoundAction extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
   final bool primary;
-  const _RoundAction(this.icon, this.label, this.onTap, {this.primary = false});
+
+  /// Lit up in gold (a hint is showing).
+  final bool glow;
+  const _RoundAction(this.icon, this.label, this.onTap, {this.primary = false, this.glow = false});
 
   @override
   Widget build(BuildContext context) {
@@ -789,14 +941,21 @@ class _RoundAction extends StatelessWidget {
           child: Material(
             elevation: enabled ? 3 : 0,
             shadowColor: const Color(0x66241A10),
-            color: primary ? ink : Colors.white,
+            color: primary ? ink : (glow ? Palette.gold : Palette.card),
             shape: CircleBorder(
-              side: BorderSide(color: enabled ? Palette.tubeStroke : const Color(0x80D8CFC0), width: 2),
+              side: BorderSide(
+                color: enabled ? Palette.tubeStroke : Palette.tubeStroke.withValues(alpha: 0.5),
+                width: 2,
+              ),
             ),
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onTap,
-              child: SizedBox(width: 58, height: 58, child: Icon(icon, size: 28, color: primary ? Colors.white : ink)),
+              child: SizedBox(
+                width: 58,
+                height: 58,
+                child: Icon(icon, size: 28, color: primary ? Palette.onInk : (glow ? Palette.navy : ink)),
+              ),
             ),
           ),
         ),
@@ -843,7 +1002,7 @@ class _Loading extends StatelessWidget {
         child: Center(
           child: Text(
             unwind ? 'Mixing a calm puzzle…' : 'Mixing today\'s colors…',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
           ),
         ),
       ),
@@ -875,14 +1034,14 @@ class ModeSwitch extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 17, color: on ? Colors.white : Palette.ink),
+                Icon(icon, size: 17, color: on ? (unwind ? Colors.white : Palette.onInk) : Palette.ink),
                 const SizedBox(width: 5),
                 AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: on ? Colors.white : Palette.ink,
+                    color: on ? (unwind ? Colors.white : Palette.onInk) : Palette.ink,
                     fontFamily: DefaultTextStyle.of(context).style.fontFamily,
                   ),
                   child: Text(label),
@@ -899,7 +1058,7 @@ class ModeSwitch extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.85),
+          color: Palette.card.withValues(alpha: 0.85),
           borderRadius: BorderRadius.circular(h),
           border: Border.all(color: Palette.tubeStroke, width: 1.5),
           boxShadow: const [BoxShadow(color: Color(0x22241A10), blurRadius: 10, offset: Offset(0, 3))],
@@ -952,13 +1111,13 @@ class TwistChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Palette.card,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withValues(alpha: 0.6), width: 2),
       ),
       child: Text(
         '$icon  $text',
-        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
+        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
       ),
     );
   }
@@ -966,17 +1125,18 @@ class TwistChip extends StatelessWidget {
 
 String colorName(int c) => const ['red', 'yellow', 'green', 'blue', 'purple', 'orange'][c % 6];
 
-/// Notes on/off and the background soundscape picker.
-class SoundSheet extends StatefulWidget {
+/// Look (light or dark, colorblind mode) and sound (soundscape, music, notes).
+class SettingsSheet extends StatefulWidget {
   final Storage storage;
+  final Appearance appearance;
   final VoidCallback onChanged;
-  const SoundSheet({super.key, required this.storage, required this.onChanged});
+  const SettingsSheet({super.key, required this.storage, required this.appearance, required this.onChanged});
 
   @override
-  State<SoundSheet> createState() => _SoundSheetState();
+  State<SettingsSheet> createState() => _SettingsSheetState();
 }
 
-class _SoundSheetState extends State<SoundSheet> {
+class _SettingsSheetState extends State<SettingsSheet> {
   void _pick(Ambience a) {
     Sounds.setAmbience(a);
     widget.storage.setAmbience(a.name);
@@ -989,9 +1149,45 @@ class _SoundSheetState extends State<SoundSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Sound', textAlign: TextAlign.center, style: Palette.display()),
+        Text('Settings', textAlign: TextAlign.center, style: Palette.display()),
+        const SizedBox(height: 16),
+        _ThemePicker(
+          value: widget.appearance.choice,
+          onChanged: (c) {
+            widget.appearance.setChoice(c);
+            setState(() {});
+          },
+        ),
+        const SizedBox(height: 4),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+          title: Text(
+            'Colorblind mode',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(
+              children: [
+                for (var i = 0; i < 6; i++) Padding(padding: const EdgeInsets.only(right: 6), child: _BallChip(i)),
+              ],
+            ),
+          ),
+          value: widget.appearance.colorblind,
+          activeThumbColor: Palette.gold,
+          onChanged: (v) {
+            widget.appearance.setColorblind(v);
+            setState(() {});
+          },
+        ),
+        Text(
+          'Easier-to-tell colors, and a shape on every ball.',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+        ),
+        Divider(height: 32, color: Palette.line),
+        Text('Sound', textAlign: TextAlign.center, style: Palette.display(size: 22)),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           'Pick a soundscape. It softens as your tubes fill.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
@@ -1014,11 +1210,11 @@ class _SoundSheetState extends State<SoundSheet> {
         const SizedBox(height: 14),
         SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: const Text(
+          title: Text(
             'Calm music',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
           ),
-          subtitle: const Text(
+          subtitle: Text(
             'A soft pad and a wandering kalimba, never the same twice',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
           ),
@@ -1033,7 +1229,7 @@ class _SoundSheetState extends State<SoundSheet> {
         ),
         SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: const Text(
+          title: Text(
             'Notes and clinks when you pour',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
           ),
@@ -1047,7 +1243,7 @@ class _SoundSheetState extends State<SoundSheet> {
             widget.onChanged();
           },
         ),
-        const Text(
+        Text(
           'On iPhone, turn off the silent switch to hear sound.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Palette.inkSoft),
@@ -1066,10 +1262,10 @@ class _AmbienceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? const Color(0xFFFFF3D6) : Palette.background,
+      color: selected ? Palette.picked : Palette.panel,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: selected ? Palette.gold : const Color(0xFFEDE6D9), width: 2),
+        side: BorderSide(color: selected ? Palette.gold : Palette.line, width: 2),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -1081,11 +1277,97 @@ class _AmbienceTile extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               ambienceLabel(ambience),
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.ink),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+/// Auto / Light / Dark.
+class _ThemePicker extends StatelessWidget {
+  final ThemeChoice value;
+  final ValueChanged<ThemeChoice> onChanged;
+  const _ThemePicker({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget seg(ThemeChoice c, IconData icon, String label) {
+      final on = c == value;
+      return Expanded(
+        child: Squish(
+          child: Material(
+            color: on ? Palette.picked : Palette.panel,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: on ? Palette.gold : Palette.line, width: 2),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onChanged(c),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Column(
+                  children: [
+                    Icon(icon, color: Palette.ink, size: 22),
+                    const SizedBox(height: 2),
+                    Text(
+                      label,
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.ink),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        seg(ThemeChoice.auto, Icons.brightness_auto_rounded, 'Auto'),
+        const SizedBox(width: 8),
+        seg(ThemeChoice.light, Icons.wb_sunny_rounded, 'Light'),
+        const SizedBox(width: 8),
+        seg(ThemeChoice.dark, Icons.dark_mode_rounded, 'Dark'),
+      ],
+    );
+  }
+}
+
+/// A small ball in the current colors (with its shape in colorblind mode).
+class _BallChip extends StatelessWidget {
+  final int color;
+  const _BallChip(this.color);
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(size: const Size(22, 22), painter: _BallChipPainter(color));
+}
+
+class _BallChipPainter extends CustomPainter {
+  final int color;
+  final bool shape;
+  _BallChipPainter(this.color) : shape = Palette.colorblind;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    canvas.drawCircle(c, size.width / 2, Paint()..color = Palette.balls[color]);
+    if (shape) {
+      paintBallShape(
+        canvas,
+        c,
+        size.width * 0.42,
+        Palette.shapes[color],
+        Colors.white,
+        Palette.navy.withValues(alpha: 0.6),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BallChipPainter old) => old.color != color || old.shape != shape;
 }

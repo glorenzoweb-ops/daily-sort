@@ -8,6 +8,7 @@ import 'services/premium.dart';
 import 'services/sound.dart';
 import 'services/sound/ambience.dart';
 import 'services/storage.dart';
+import 'ui/appearance.dart';
 import 'ui/game_screen.dart';
 import 'ui/palette.dart';
 
@@ -24,29 +25,78 @@ Future<void> main() async {
   Sounds.init(); // not awaited: the game never waits on audio
   // Swap for a RevenueCat-backed implementation when payments go live.
   final premium = const bool.fromEnvironment('PREMIUM') ? UnlockedPremium() : ComingSoonPremium();
-  runApp(DailySortApp(storage: storage, premium: premium, incomingResult: incomingResultParam()));
+  final appearance = Appearance(storage);
+  runApp(
+    DailySortApp(storage: storage, premium: premium, appearance: appearance, incomingResult: incomingResultParam()),
+  );
 }
 
-class DailySortApp extends StatelessWidget {
+class DailySortApp extends StatefulWidget {
   final Storage storage;
   final PremiumService premium;
+  final Appearance appearance;
 
   /// A friend's result from the link that opened the app (`?r=...`).
   final String? incomingResult;
-  const DailySortApp({super.key, required this.storage, required this.premium, this.incomingResult});
+  const DailySortApp({
+    super.key,
+    required this.storage,
+    required this.premium,
+    required this.appearance,
+    this.incomingResult,
+  });
+
+  @override
+  State<DailySortApp> createState() => _DailySortAppState();
+}
+
+class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    widget.appearance.addListener(_changed);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    widget.appearance.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() => widget.appearance.systemChanged();
+
+  void _changed() {
+    setState(() {});
+    // Many widgets read the palette directly, some of them const: redraw all.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) rebuildEverything(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final base = ThemeData(
       useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: Palette.gold, surface: Palette.background),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: Palette.gold,
+        brightness: Palette.dark ? Brightness.dark : Brightness.light,
+        surface: Palette.background,
+      ),
       scaffoldBackgroundColor: Palette.background,
     );
     return MaterialApp(
       title: 'Daily Sort',
       debugShowCheckedModeBanner: false,
       theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),
-      home: GameScreen(storage: storage, premium: premium, incomingResult: incomingResult),
+      home: GameScreen(
+        storage: widget.storage,
+        premium: widget.premium,
+        appearance: widget.appearance,
+        incomingResult: widget.incomingResult,
+      ),
     );
   }
 }

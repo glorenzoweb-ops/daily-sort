@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../services/storage.dart';
 import 'board.dart';
 import 'daily.dart';
+import 'solver.dart';
 
 enum GameStatus { playing, won, outOfMoves }
 
@@ -85,6 +86,52 @@ class GameController extends ChangeNotifier {
     }
   }
 
+  /// The move a hint is pointing at, until the next tap.
+  Move? hint;
+
+  /// What a hint says when the board can't be solved in the moves left:
+  /// undo this many moves first.
+  int hintUndo = 0;
+
+  /// Works out a hint: the first move of a shortest solution from here. If
+  /// none fits in the moves left, how many moves to undo instead. Returns
+  /// false when there is nothing to hint (solved, or out of moves).
+  bool findHint() {
+    if (status != GameStatus.playing) return false;
+    hint = null;
+    hintUndo = 0;
+    final left = puzzle.isPractice ? 40 : movesLeft;
+    final sol = solveOptimal(board, maxDepth: left, maxStates: 150000);
+    if (sol != null && sol.isNotEmpty) {
+      hint = sol.first;
+    } else {
+      // Step back until a solution fits again.
+      var b = puzzle.start;
+      final states = <BoardState>[b];
+      for (final m in history) {
+        b = b.apply(m);
+        states.add(b);
+      }
+      for (var k = 1; k <= history.length; k++) {
+        final at = history.length - k;
+        if (solveOptimal(states[at], maxDepth: puzzle.moveLimit - at, maxStates: 150000) != null) {
+          hintUndo = k;
+          break;
+        }
+      }
+      if (hintUndo == 0) hintUndo = history.length;
+    }
+    notifyListeners();
+    return true;
+  }
+
+  bool _pendingHintMove = false;
+
+  void _clearHint() {
+    hint = null;
+    hintUndo = 0;
+  }
+
   int get movesUsed => history.length;
   int get movesLeft => puzzle.moveLimit - movesUsed;
   bool get canUndo => history.isNotEmpty && status != GameStatus.won;
@@ -95,6 +142,8 @@ class GameController extends ChangeNotifier {
 
   TapOutcome tap(int tube) {
     if (status != GameStatus.playing) return const Ignored();
+    // The hint stays up while you pick its tube, and goes once you pour.
+    if (hint != null && !(selected == null && tube == hint!.from)) _clearHint();
     final sel = selected;
     if (sel == null) {
       if (!board.canPick(tube)) {
@@ -139,6 +188,13 @@ class GameController extends ChangeNotifier {
     if (!canUndo) return;
     final m = history.removeLast();
     moveColors.removeLast();
+    if (hintUndo > 0) {
+      hintUndo--;
+      // Undone far enough: the hint now points at the way on.
+      if (hintUndo == 0) _pendingHintMove = true;
+    } else {
+      _clearHint();
+    }
     // Rebuild from the start: pours aren't always reversible (partial pours).
     board = puzzle.start;
     for (final h in history) {
@@ -146,6 +202,11 @@ class GameController extends ChangeNotifier {
     }
     selected = null;
     status = GameStatus.playing;
+    if (_pendingHintMove) {
+      _pendingHintMove = false;
+      final sol = solveOptimal(board, maxDepth: puzzle.isPractice ? 40 : movesLeft, maxStates: 150000);
+      hint = sol == null || sol.isEmpty ? null : sol.first;
+    }
     _persist();
     notifyListeners();
     assert(m.from >= 0);
@@ -156,6 +217,7 @@ class GameController extends ChangeNotifier {
     if (history.isEmpty) return;
     history.clear();
     moveColors.clear();
+    _clearHint();
     board = puzzle.start;
     selected = null;
     attempts++;
@@ -218,6 +280,7 @@ class GameController extends ChangeNotifier {
       ..solved = true
       ..solvedMoves = history.length
       ..solvedColors = List.of(moveColors)
+      ..par = puzzle.par
       ..attempts = attempts
       ..moves = List.of(history);
     storage.saveDay(puzzle.number, r);

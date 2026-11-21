@@ -72,6 +72,14 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 
 **Archive and Daily Sort+.** Today's puzzle is always free. The last 3 days of the archive are free (`freeArchiveDays`), and puzzles you already played stay open. Older days open the paywall (yearly $19.99 with a 7-day trial, or $2.99 a month). Until payments are wired in, the button explains that Plus opens with the store release and counts the tap (`premiumInterest` in storage) so you can see demand. Build with `--dart-define=PREMIUM=true` to test everything unlocked. Archive solves never touch the streak or stats.
 
+**Hints.** The bulb under the board finds the first move of a shortest solution from where you are (`GameController.findHint`): a gold arrow over the tube to tap and a ring on the one to pour into. If the board can't be sorted in the moves left, it says how many moves to undo, then points the way on. One free hint per daily puzzle (`freeHintsPerDay`); Unwind and Daily Sort+ are unlimited. Used hints show as 💡 on the shared result.
+
+**Look.** Settings (the sliders icon) has Auto / Light / Dark and colorblind mode (`lib/ui/appearance.dart`). Dark mode turns the sky into a deep night and the menus dark; the colors live in `Palette`, which every widget reads. Colorblind mode swaps in Okabe-Ito based colors and draws a shape on every ball (`Palette.shapes`).
+
+**History.** The statistics sheet shows the last few weeks as a calendar (`lib/ui/history.dart`): solved days glow gold by stars, tap a day for moves, par, tries and hints. Par is saved with each solve.
+
+**Reactions.** On the friends board, tap 😊 on a friend's row to send 👏 🔥 😮 or 😂. Like results, a reaction travels in a link (`?x=2-1-Ana`, with your own result as `&r=` when you've solved), so it needs no server. The friend gets a toast and sees it under their row.
+
 **Performance notes.** On the web, Flutter redraws the whole screen on every frame, so the game keeps frames few and cheap:
 - `web/index.html` caps rendering at 2 pixels per CSS pixel. 3x phone screens look the same and each frame costs less than half as much.
 - Background motion (sky, ball buddies breathing and blinking) runs on one shared 20 fps clock (`lib/ui/ambient_clock.dart`), driven by a timer rather than a ticker. The board only runs at full frame rate while something moves and then goes back to sleep.

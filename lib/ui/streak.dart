@@ -93,7 +93,7 @@ class _StreakFlameState extends State<StreakFlame> with SingleTickerProviderStat
                   height: 48,
                   padding: const EdgeInsets.fromLTRB(10, 0, 16, 0),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Palette.card,
                     borderRadius: BorderRadius.circular(30),
                     border: Border.all(color: widget.litToday ? const Color(0xFFFFB27A) : Palette.tubeStroke, width: 2),
                     boxShadow: [
@@ -178,7 +178,7 @@ class FreezeSlots extends StatelessWidget {
           margin: const EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: i < freezes ? const Color(0xFFE3F3FD) : const Color(0xFFF4EFE6),
+            color: i < freezes ? const Color(0xFFE3F3FD) : Palette.panel,
             border: Border.all(color: i < freezes ? _ice : Palette.tubeStroke, width: 2),
           ),
           child: Icon(Icons.ac_unit_rounded, color: i < freezes ? _ice : const Color(0xFFD8CFC0), size: 24),
@@ -279,13 +279,13 @@ class StreakSheet extends StatelessWidget {
                     ? 'Solve today\'s puzzle to start a streak.'
                     : 'Solve today\'s puzzle to keep your streak alive.'),
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
         ),
         const SizedBox(height: 4),
         Text(
           'Best: ${stats.maxStreak} ${stats.maxStreak == 1 ? 'day' : 'days'}',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
         ),
         const SizedBox(height: 18),
         FreezeProgress(stats: stats),
@@ -370,10 +370,10 @@ class _MilestoneState extends State<_Milestone> with SingleTickerProviderStateMi
           width: 300,
           padding: const EdgeInsets.fromLTRB(24, 26, 24, 22),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xFFFFF3DE), Colors.white],
+              colors: [Palette.picked, Palette.card],
             ),
             borderRadius: BorderRadius.circular(32),
             boxShadow: const [BoxShadow(color: Color(0x66FF8A3D), blurRadius: 40, offset: Offset(0, 10))],
@@ -397,7 +397,7 @@ class _MilestoneState extends State<_Milestone> with SingleTickerProviderStateMi
               Text(
                 _milestoneLine(widget.days),
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.inkSoft),
               ),
               const SizedBox(height: 20),
               Squish(

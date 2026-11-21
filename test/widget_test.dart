@@ -1,6 +1,7 @@
 import 'package:daily_sort/main.dart';
 import 'package:daily_sort/services/premium.dart';
 import 'package:daily_sort/services/storage.dart';
+import 'package:daily_sort/ui/appearance.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,7 +20,9 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false; // fonts are bundled
     SharedPreferences.setMockInitialValues({'seenHowTo': true});
     final storage = await Storage.open();
-    await tester.pumpWidget(DailySortApp(storage: storage, premium: ComingSoonPremium()));
+    await tester.pumpWidget(
+      DailySortApp(storage: storage, premium: ComingSoonPremium(), appearance: Appearance(storage)),
+    );
     await settle(tester);
     expect(find.text('DAILY SORT'), findsOneWidget);
     expect(find.text('MOVES  '), findsOneWidget);
