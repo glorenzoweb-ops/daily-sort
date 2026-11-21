@@ -194,9 +194,18 @@ class GameController extends ChangeNotifier {
     storage.saveDay(puzzle.number, r);
   }
 
+  /// Set when this Unwind solve earned a streak freeze.
+  bool earnedFreeze = false;
+
+  /// The streak before and after this daily solve (for the celebration).
+  int streakBefore = 0, streakAfter = 0;
+
   void _recordWin() {
     if (puzzle.isPractice) {
       storage.addPracticeSolve();
+      final s = storage.stats;
+      earnedFreeze = s.addUnwindSolve();
+      storage.saveStats(s);
       return;
     }
     final r = _record ??= DayRecord();
@@ -210,10 +219,12 @@ class GameController extends ChangeNotifier {
     storage.saveDay(puzzle.number, r);
 
     final s = storage.stats;
+    streakBefore = s.currentStreak(puzzle.number);
     s.played++;
     s.solved++;
     s.streak = s.lastSolvedNumber == puzzle.number - 1 ? s.streak + 1 : 1;
     if (s.streak > s.maxStreak) s.maxStreak = s.streak;
+    streakAfter = s.streak;
     s.lastSolvedNumber = puzzle.number;
     final st = starsFor(history.length, puzzle.par);
     s.stars[st] = (s.stars[st] ?? 0) + 1;

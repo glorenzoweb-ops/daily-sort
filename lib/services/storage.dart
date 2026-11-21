@@ -38,8 +38,17 @@ class Stats {
   int solved;
   int streak;
   int maxStreak;
+
+  /// Last daily puzzle number the streak covers: the last solve, or the last
+  /// day a streak freeze filled in.
   int lastSolvedNumber;
   Map<int, int> stars; // stars → count
+
+  /// Streak freezes in the bank, and Unwind solves toward the next one.
+  int freezes;
+  int freezeProgress;
+  static const maxFreezes = 2;
+  static const unwindPerFreeze = 5;
 
   Stats({
     this.played = 0,
@@ -47,11 +56,42 @@ class Stats {
     this.streak = 0,
     this.maxStreak = 0,
     this.lastSolvedNumber = 0,
+    this.freezes = 0,
+    this.freezeProgress = 0,
     Map<int, int>? stars,
   }) : stars = stars ?? {1: 0, 2: 0, 3: 0};
 
   /// The streak as of [today]: broken if yesterday wasn't solved.
   int currentStreak(int today) => lastSolvedNumber >= today - 1 ? streak : 0;
+
+  /// Days missed before [today] are covered by banked freezes, if there are
+  /// enough. Returns how many freezes were used (0 if none were needed, or
+  /// if there weren't enough and the streak is lost).
+  int applyFreezes(int today) {
+    final missed = today - 1 - lastSolvedNumber;
+    if (streak == 0 || lastSolvedNumber == 0 || missed <= 0) return 0;
+    if (missed > freezes) {
+      streak = 0;
+      return 0;
+    }
+    freezes -= missed;
+    lastSolvedNumber = today - 1;
+    return missed;
+  }
+
+  /// Counts an Unwind solve toward the next freeze. Returns true when it
+  /// earns one.
+  bool addUnwindSolve() {
+    if (freezes >= maxFreezes) {
+      freezeProgress = 0;
+      return false;
+    }
+    freezeProgress++;
+    if (freezeProgress < unwindPerFreeze) return false;
+    freezeProgress = 0;
+    freezes++;
+    return true;
+  }
 
   Map<String, dynamic> toJson() => {
     'played': played,
@@ -59,6 +99,8 @@ class Stats {
     'streak': streak,
     'maxStreak': maxStreak,
     'lastSolvedNumber': lastSolvedNumber,
+    'freezes': freezes,
+    'freezeProgress': freezeProgress,
     'stars': stars.map((k, v) => MapEntry('$k', v)),
   };
 
@@ -68,6 +110,8 @@ class Stats {
     streak: j['streak'] as int? ?? 0,
     maxStreak: j['maxStreak'] as int? ?? 0,
     lastSolvedNumber: j['lastSolvedNumber'] as int? ?? 0,
+    freezes: j['freezes'] as int? ?? 0,
+    freezeProgress: j['freezeProgress'] as int? ?? 0,
     stars: ((j['stars'] as Map?) ?? {}).map((k, v) => MapEntry(int.parse(k as String), v as int)),
   );
 }
