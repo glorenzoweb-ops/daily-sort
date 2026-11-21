@@ -10,7 +10,7 @@ const double _padSeconds = 32;
 /// A slow, warm pad: four chords in C major (the same key as the pour notes),
 /// eight seconds each, melting into each other. Every frequency is rounded so
 /// it completes whole cycles in 32 s, which makes the loop seamless.
-Float32List synthPad() {
+Future<Float32List> synthPadAsync([Future<void> Function()? pause]) async {
   final n = (padRate * _padSeconds).round();
   final out = Float32List(n);
   const chords = [
@@ -36,6 +36,7 @@ Float32List synthPad() {
       final voices = [lock(base - 0.4), lock(base + 0.4), lock(base * 2 + 0.25)];
       const amps = [1.0, 1.0, 0.25];
       for (var v = 0; v < voices.length; v++) {
+        await pause?.call(); // let a frame paint between voices
         // Oscillator by rotation: much cheaper than sin() per sample.
         final dw = 2 * math.pi * voices[v] / padRate;
         final cs = math.cos(dw), sn = math.sin(dw);
@@ -65,13 +66,20 @@ Float32List synthChime(int variant) {
     final f = scale[5 + r.nextInt(5)];
     final amp = 0.5 + r.nextDouble() * 0.5;
     final start = (at * sampleRate).round();
-    for (var i = start; i < n; i++) {
-      final t = (i - start) / sampleRate;
-      var v = 0.0;
-      for (var p = 0; p < partials.length; p++) {
-        v += amps[p] * math.sin(2 * math.pi * f * partials[p] * t) * math.exp(-t * (1.6 + p * 1.4));
+    // Each partial is a decaying oscillator stepped by rotation, which is
+    // ~10x cheaper than calling sin() and exp() for every sample.
+    for (var p = 0; p < partials.length; p++) {
+      final dw = 2 * math.pi * f * partials[p] / sampleRate;
+      final decay = math.exp(-(1.6 + p * 1.4) / sampleRate);
+      final cs = math.cos(dw) * decay, sn = math.sin(dw) * decay;
+      var x = amp * amps[p], y = 0.0;
+      for (var i = start; i < n; i++) {
+        final k = i - start;
+        out[i] += k < 132 ? y * k / 132 : y; // 3 ms attack
+        final nx = x * cs - y * sn;
+        y = x * sn + y * cs;
+        x = nx;
       }
-      out[i] += amp * v * (t < 0.003 ? t / 0.003 : 1);
     }
     at += 0.12 + r.nextDouble() * 0.3;
   }

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
@@ -22,23 +23,27 @@ class _SkyBackgroundState extends State<SkyBackground> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((e) => _t.value = e.inMicroseconds / 1e6)..start();
+    _ticker = createTicker((e) {
+      // Clouds and stars move slowly: 20 frames a second is plenty.
+      final t = e.inMicroseconds / 1e6;
+      if (t - _t.value >= 0.05) _t.value = t;
+    })..start();
   }
+
+  late final SkyPainter _painter = SkyPainter(_t, hourOverride: widget.hour);
 
   @override
   void dispose() {
     _ticker.dispose();
     _t.dispose();
+    _painter.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: CustomPaint(
-        painter: SkyPainter(_t, hourOverride: widget.hour),
-        size: Size.infinite,
-      ),
+      child: CustomPaint(painter: _painter..dpr = MediaQuery.devicePixelRatioOf(context), size: Size.infinite),
     );
   }
 }
@@ -106,13 +111,98 @@ class SkyPainter extends CustomPainter {
   final double? hourOverride;
   SkyPainter(this.time, {this.hourOverride}) : super(repaint: time);
 
+  double dpr = 1;
+  ui.Image? _base;
+  Size? _baseSize;
+  int _baseBucket = -1;
+  double _baseDpr = 0;
+  ui.Image? _cloudImg, _starImg;
+
+  void dispose() {
+    _base?.dispose();
+    _cloudImg?.dispose();
+    _starImg?.dispose();
+  }
+
+  static ui.Image _render(Size size, double dpr, void Function(Canvas) draw) {
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec)..scale(dpr);
+    draw(c);
+    final pic = rec.endRecording();
+    final img = pic.toImageSync(math.max(1, (size.width * dpr).ceil()), math.max(1, (size.height * dpr).ceil()));
+    pic.dispose();
+    return img;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final now = DateTime.now();
     final h = hourOverride ?? now.hour + now.minute / 60;
-    final m = _moodAt(h);
-    final (sunA, nightA, cloudA) = _layers(h);
+    // The gradient, sun or moon, hills and light change only with the clock:
+    // draw them into one image every couple of minutes.
+    final bucket = (h * 30).floor();
+    if (_base == null || _baseSize != size || _baseBucket != bucket || _baseDpr != dpr) {
+      _base?.dispose();
+      _base = _render(size, dpr, (c) => _paintStatic(c, size, h));
+      _baseSize = size;
+      _baseBucket = bucket;
+      _baseDpr = dpr;
+    }
+    final full = Offset.zero & size;
+    final img = _base!;
+    canvas.drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      full,
+      Paint()..filterQuality = FilterQuality.low,
+    );
+    _paintMoving(canvas, size, h);
+  }
+
+  void _paintMoving(Canvas canvas, Size size, double h) {
+    final (_, nightA, cloudA) = _layers(h);
     final t = time.value;
+    final w = size.width, H = size.height;
+    if (nightA > 0) {
+      final star = _starImg ??= _render(const Size(24, 24), dpr, (c) {
+        c.drawCircle(const Offset(12, 12), 10, Paint()..color = const Color(0x2EFFE9A8));
+        _star(c, const Offset(12, 12), 4.5, const Color(0xFFFFE08A));
+      });
+      final src = Rect.fromLTWH(0, 0, star.width.toDouble(), star.height.toDouble());
+      final rnd = math.Random(7);
+      final paint = Paint()..filterQuality = FilterQuality.low;
+      for (var i = 0; i < 46; i++) {
+        final p = Offset(rnd.nextDouble() * w, rnd.nextDouble() * H * 0.42);
+        final tw = 0.5 + 0.5 * math.sin(t * (0.6 + rnd.nextDouble()) + i);
+        final s = 0.8 + rnd.nextDouble() * 1.6;
+        final a = nightA * (0.35 + 0.65 * tw);
+        final half = 12 * s * (1.2 + 0.4 * tw) / 4.5 * 1.05;
+        paint.color = Colors.white.withValues(alpha: a.clamp(0.0, 1.0));
+        canvas.drawImageRect(star, src, Rect.fromCenter(center: p, width: half * 2, height: half * 2), paint);
+      }
+    }
+    if (cloudA > 0) {
+      final cloud = _cloudImg ??= _render(const Size(200, 120), dpr, (c) {
+        _cloud(c, const Offset(100, 50), 40, Colors.white);
+      });
+      final src = Rect.fromLTWH(0, 0, cloud.width.toDouble(), cloud.height.toDouble());
+      final paint = Paint()
+        ..filterQuality = FilterQuality.low
+        ..color = Colors.white.withValues(alpha: 0.75 * cloudA);
+      for (var i = 0; i < 4; i++) {
+        final speed = 6.0 + i * 3;
+        final span = w + 260;
+        final x = (i * 211 + t * speed) % span - 130;
+        final y = H * (0.07 + 0.09 * i);
+        final k = (34.0 + i * 6) / 40;
+        canvas.drawImageRect(cloud, src, Rect.fromLTWH(x - 100 * k, y - 50 * k, 200 * k, 120 * k), paint);
+      }
+    }
+  }
+
+  void _paintStatic(Canvas canvas, Size size, double h) {
+    final m = _moodAt(h);
+    final (sunA, nightA, _) = _layers(h);
     final w = size.width, H = size.height;
     final full = Offset.zero & size;
 
@@ -167,27 +257,6 @@ class SkyPainter extends CustomPainter {
       canvas.drawCircle(c, r, Paint()..color = const Color(0xFFFFF3C4).withValues(alpha: nightA));
       canvas.drawCircle(c.translate(r * 0.45, -r * 0.25), r * 0.85, Paint()..blendMode = BlendMode.dstOut);
       canvas.restore();
-
-      final rnd = math.Random(7);
-      for (var i = 0; i < 46; i++) {
-        final p = Offset(rnd.nextDouble() * w, rnd.nextDouble() * H * 0.42);
-        final tw = 0.5 + 0.5 * math.sin(t * (0.6 + rnd.nextDouble()) + i);
-        final s = 0.8 + rnd.nextDouble() * 1.6;
-        final a = nightA * (0.35 + 0.65 * tw);
-        canvas.drawCircle(p, s * 2.6, Paint()..color = const Color(0xFFFFE9A8).withValues(alpha: 0.18 * a));
-        _star(canvas, p, s * (1.2 + 0.4 * tw), const Color(0xFFFFE08A).withValues(alpha: a));
-      }
-    }
-
-    // Slow drifting clouds.
-    if (cloudA > 0) {
-      for (var i = 0; i < 4; i++) {
-        final speed = 6.0 + i * 3;
-        final span = w + 260;
-        final x = (i * 211 + t * speed) % span - 130;
-        final y = H * (0.07 + 0.09 * i);
-        _cloud(canvas, Offset(x, y), 34.0 + i * 6, Colors.white.withValues(alpha: 0.75 * cloudA));
-      }
     }
 
     // Soft hills at the bottom for depth.

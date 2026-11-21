@@ -12,6 +12,8 @@ import 'ui/palette.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Fonts are bundled in assets/google_fonts: never download them.
+  GoogleFonts.config.allowRuntimeFetching = false;
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final storage = await Storage.open();
   Haptics.enabled = storage.hapticsOn;

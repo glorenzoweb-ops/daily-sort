@@ -11,6 +11,7 @@ import 'confetti.dart';
 import 'palette.dart';
 import 'sky.dart';
 import 'squish.dart';
+import '../services/puzzles.dart';
 import 'sheets.dart';
 
 class GameScreen extends StatefulWidget {
@@ -23,21 +24,25 @@ class GameScreen extends StatefulWidget {
 }
 
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
-  GameController? _game;
+  // Both modes stay alive, so switching never loses your place.
+  GameController? _daily, _unwind;
+  bool _inUnwind = false;
+  late final Puzzles _puzzles = Puzzles(widget.storage);
   final _confetti = ConfettiController();
-  bool get _practice => _game?.puzzle.isPractice ?? false;
+  GameController? get _game => _inUnwind ? _unwind : _daily;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _load();
+    _loadDaily();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _game?.dispose();
+    _daily?.dispose();
+    _unwind?.dispose();
     super.dispose();
   }
 
@@ -45,25 +50,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // A new day started while the app was in the background.
     if (state == AppLifecycleState.resumed &&
-        _game != null &&
-        !_practice &&
-        puzzleNumberFor(DateTime.now()) != _game!.puzzle.number) {
-      _load();
+        _daily != null &&
+        puzzleNumberFor(DateTime.now()) != _daily!.puzzle.number) {
+      _loadDaily();
     }
   }
 
-  Future<void> _load({bool practice = false}) async {
-    // Let the loading frame paint before the (sub-second) puzzle generation.
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    final puzzle = practice
-        ? practicePuzzle(DateTime.now().microsecondsSinceEpoch & 0x7FFFFFFF)
-        : puzzleForDay(DateTime.now());
-    final game = GameController(puzzle, widget.storage);
+  Future<void> _loadDaily() async {
+    final puzzle = await _puzzles.daily(DateTime.now());
     if (!mounted) return;
     setState(() {
-      _game?.dispose();
-      _game = game;
+      _daily?.dispose();
+      _daily = GameController(puzzle, widget.storage);
     });
+    // Get an Unwind puzzle ready while the player looks at today's board.
+    Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
     if (!widget.storage.seenHowTo) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
@@ -72,12 +73,33 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _startPractice() {
-    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-    _load(practice: true);
+  Future<void> _newUnwind() async {
+    final puzzle = await _puzzles.unwind();
+    if (!mounted) return;
+    setState(() {
+      _unwind?.dispose();
+      _unwind = GameController(puzzle, widget.storage);
+    });
+    Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
   }
 
-  void _backToToday() => _load();
+  /// Daily ⇄ Unwind. Each keeps its board exactly as you left it.
+  void _setMode(bool unwind) {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    if (unwind == _inUnwind) return;
+    setState(() => _inUnwind = unwind);
+    if (unwind && (_unwind == null || _unwind!.status == GameStatus.won)) _newUnwind();
+  }
+
+  /// "Unwind" from the daily result, or "Next puzzle" inside Unwind.
+  void _startPractice() {
+    if (_inUnwind) {
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+      _newUnwind();
+    } else {
+      _setMode(true);
+    }
+  }
 
   void _openSound() {
     showCozySheet(
@@ -93,6 +115,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   void _onWin() {
     _confetti.burst();
+    // A calm moment: prepare what comes next.
+    if (_inUnwind) {
+      _puzzles.prefetchUnwind();
+    } else {
+      Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchTomorrow(DateTime.now()));
+    }
     Future<void>.delayed(const Duration(milliseconds: 700), () {
       if (mounted) _openResults();
     });
@@ -125,7 +153,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: g == null ? const _Loading() : _buildGame(g),
+                child: g == null
+                    ? _Loading(unwind: _inUnwind, onBack: _daily == null ? null : () => _setMode(false))
+                    : _buildGame(g),
               ),
             ),
           ),
@@ -144,26 +174,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-              child: Row(
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  _IconBtn(Icons.help_outline_rounded, 'How to play', () => showCozySheet(context, const HowToSheet())),
-                  _IconBtn(
-                    Sounds.ambience != Ambience.off || Sounds.music
-                        ? Icons.music_note_rounded
-                        : (Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
-                    'Sound and soundscapes',
-                    _openSound,
+                  Row(
+                    children: [
+                      _IconBtn(
+                        Icons.help_outline_rounded,
+                        'How to play',
+                        () => showCozySheet(context, const HowToSheet()),
+                      ),
+                      _IconBtn(
+                        Sounds.ambience != Ambience.off || Sounds.music
+                            ? Icons.music_note_rounded
+                            : (Sounds.enabled ? Icons.volume_up_rounded : Icons.volume_off_rounded),
+                        'Sound and soundscapes',
+                        _openSound,
+                      ),
+                      const Spacer(),
+                      _IconBtn(
+                        Icons.bar_chart_rounded,
+                        'Statistics',
+                        () => _openResults(statsOnly: g.status != GameStatus.won),
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  if (p.isPractice)
-                    _IconBtn(Icons.today_rounded, "Back to today's puzzle", _backToToday)
-                  else
-                    _IconBtn(Icons.spa_rounded, 'Unwind: endless calm puzzles', _startPractice),
-                  _IconBtn(
-                    Icons.bar_chart_rounded,
-                    'Statistics',
-                    () => _openResults(statsOnly: g.status != GameStatus.won),
-                  ),
+                  ModeSwitch(unwind: _inUnwind, onChanged: _setMode),
                 ],
               ),
             ),
@@ -426,14 +462,107 @@ class _IconBtn extends StatelessWidget {
 }
 
 class _Loading extends StatelessWidget {
-  const _Loading();
+  final bool unwind;
+  final VoidCallback? onBack;
+  const _Loading({this.unwind = false, this.onBack});
   @override
-  Widget build(BuildContext context) => const Center(
-    child: Text(
-      'Mixing today\'s colors…',
-      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
-    ),
+  Widget build(BuildContext context) => Column(
+    children: [
+      if (onBack != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: ModeSwitch(unwind: unwind, onChanged: (u) => u ? null : onBack!()),
+        ),
+      Expanded(
+        child: Center(
+          child: Text(
+            unwind ? 'Mixing a calm puzzle…' : 'Mixing today\'s colors…',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+          ),
+        ),
+      ),
+    ],
   );
+}
+
+/// The Daily / Unwind switch at the top: a pill with a sliding highlight.
+class ModeSwitch extends StatelessWidget {
+  final bool unwind;
+  final ValueChanged<bool> onChanged;
+  const ModeSwitch({super.key, required this.unwind, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    const segW = 88.0, h = 40.0;
+    Widget seg(bool isUnwind, IconData icon, String label) {
+      final on = unwind == isUnwind;
+      return Semantics(
+        button: true,
+        selected: on,
+        label: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onChanged(isUnwind),
+          child: SizedBox(
+            width: segW,
+            height: h,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 17, color: on ? Colors.white : Palette.ink),
+                const SizedBox(width: 5),
+                AnimatedDefaultTextStyle(
+                  duration: const Duration(milliseconds: 200),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: on ? Colors.white : Palette.ink,
+                    fontFamily: DefaultTextStyle.of(context).style.fontFamily,
+                  ),
+                  child: Text(label),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Squish(
+      pressedScale: 0.95,
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(h),
+          border: Border.all(color: Palette.tubeStroke, width: 1.5),
+          boxShadow: const [BoxShadow(color: Color(0x22241A10), blurRadius: 10, offset: Offset(0, 3))],
+        ),
+        child: Stack(
+          children: [
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutBack,
+              left: unwind ? segW : 0,
+              top: 0,
+              width: segW,
+              height: h,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: unwind ? const Color(0xFF2EA383) : Palette.ink,
+                  borderRadius: BorderRadius.circular(h),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [seg(false, Icons.wb_sunny_rounded, 'Daily'), seg(true, Icons.spa_rounded, 'Unwind')],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Explains today's rule twist in one line.

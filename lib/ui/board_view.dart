@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
@@ -81,6 +82,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   int? _shakeTube;
   int? _glowTube;
   List<PourInfo> _winPours = const [];
+  final _Sprites _sprites = _Sprites();
   BoardLayout? _layout;
 
   @override
@@ -89,6 +91,9 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     _ticker = createTicker((elapsed) {
       final t = elapsed.inMicroseconds / 1e6;
       _sparks.removeWhere((s) => t - s.born > 1.3);
+      // When nothing is moving, the idle life (breathing, blinking) only
+      // needs ~24 frames a second: saves a lot of battery.
+      if (!_busy(t) && t - _time.value < 1 / 24) return;
       _time.value = t;
     })..start();
     _pour.addStatusListener((s) {
@@ -109,6 +114,17 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       widget.game.addListener(_onGame);
       _reportCalm();
     }
+  }
+
+  bool _busy(double t) {
+    if (_pour.isAnimating || _lift.isAnimating || _shake.isAnimating || _glow.isAnimating || _win.isAnimating) {
+      return true;
+    }
+    if (_sparks.isNotEmpty || t - _shakeAt < 0.4) return true;
+    for (final at in _landAt.values) {
+      if (t - at < 0.9) return true;
+    }
+    return false;
   }
 
   void _onGame() {
@@ -143,6 +159,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     }
     _ticker.dispose();
     _time.dispose();
+    _sprites.dispose();
     super.dispose();
   }
 
@@ -247,33 +264,37 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       builder: (context, c) {
         final layout = BoardLayout(c.biggest, game.board.tubeCount, game.board.capacity);
         _layout = layout;
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (d) => _onTap(d.localPosition),
-          child: AnimatedBuilder(
-            animation: Listenable.merge([_lift, _pour, _shake, _glow, _win, _time]),
-            builder: (context, _) => CustomPaint(
-              size: c.biggest,
-              painter: _BoardPainter(
-                layout: layout,
-                board: _pending?.before ?? game.board,
-                pending: _pending,
-                pourT: _pour.value,
-                liftTube: _liftTube,
-                liftT: Curves.easeOutBack.transform(_lift.value.clamp(0.0, 1.0)),
-                shakeTube: _shakeTube,
-                shakeT: _shake.value,
-                glowTube: _glowTube,
-                glowT: _glow.value,
-                winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
-                winPours: _win.isAnimating ? _winPours : const [],
-                won: game.status == GameStatus.won && _pending == null,
-                time: _time.value,
-                landAt: _landAt,
-                sparks: _sparks,
-                shakeAt: _shakeAt,
-                lookTube: _pending?.move.to ?? game.selected,
-                breathe: widget.breathe,
+        return RepaintBoundary(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (d) => _onTap(d.localPosition),
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_lift, _pour, _shake, _glow, _win, _time]),
+              builder: (context, _) => CustomPaint(
+                size: c.biggest,
+                painter: _BoardPainter(
+                  sprites: _sprites,
+                  dpr: MediaQuery.devicePixelRatioOf(context),
+                  layout: layout,
+                  board: _pending?.before ?? game.board,
+                  pending: _pending,
+                  pourT: _pour.value,
+                  liftTube: _liftTube,
+                  liftT: Curves.easeOutBack.transform(_lift.value.clamp(0.0, 1.0)),
+                  shakeTube: _shakeTube,
+                  shakeT: _shake.value,
+                  glowTube: _glowTube,
+                  glowT: _glow.value,
+                  winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
+                  winPours: _win.isAnimating ? _winPours : const [],
+                  won: game.status == GameStatus.won && _pending == null,
+                  time: _time.value,
+                  landAt: _landAt,
+                  sparks: _sparks,
+                  shakeAt: _shakeAt,
+                  lookTube: _pending?.move.to ?? game.selected,
+                  breathe: widget.breathe,
+                ),
               ),
             ),
           ),
@@ -303,8 +324,12 @@ class _BoardPainter extends CustomPainter {
   final int? lookTube;
   final bool breathe;
   final List<PourInfo> winPours;
+  final _Sprites sprites;
+  final double dpr;
 
   _BoardPainter({
+    required this.sprites,
+    required this.dpr,
     this.winPours = const [],
     this.breathe = false,
     required this.time,
@@ -332,6 +357,7 @@ class _BoardPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final L = layout;
     final p = pending;
+    sprites.prepare(L.size, dpr);
     // Tiny screen shake right after a tube completes.
     final sd = time - shakeAt;
     canvas.save();
@@ -341,7 +367,8 @@ class _BoardPainter extends CustomPainter {
     }
     final lookX = lookTube == null ? null : L.cx(lookTube!);
     if (breathe) _breathing(canvas, size);
-    _shelf(canvas);
+    sprites.draw(canvas, sprites.get('shelf', (Offset.zero & L.size).inflate(L.ball * 1.5), _shelf), Offset.zero);
+    final r0 = L.tubeRect(0);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
       if (i == shakeTube && shakeT > 0 && shakeT < 1) {
@@ -356,10 +383,11 @@ class _BoardPainter extends CustomPainter {
 
       // Jelly: the tube and its balls wobble for a moment after a landing.
       final wob = _wobble(i);
-      final r0 = L.tubeRect(i);
-      canvas.translate(r0.center.dx, r0.bottom);
+      final ri = L.tubeRect(i);
+      final shift = Offset(ri.left - r0.left, 0);
+      canvas.translate(ri.center.dx, ri.bottom);
       canvas.scale(1 + 0.03 * wob, 1 - 0.015 * wob);
-      canvas.translate(-r0.center.dx, -r0.bottom);
+      canvas.translate(-ri.center.dx, -ri.bottom);
 
       final complete = board.isTubeComplete(i) && p == null;
       var glow = 0.0;
@@ -367,7 +395,19 @@ class _BoardPainter extends CustomPainter {
       if (won && complete) glow = math.max(glow, 0.55 + 0.25 * math.sin(winT * math.pi * 4 + i));
       final doneColor = complete ? Palette.balls[board.tubes[i].first] : null;
       final pickyColor = board.isPicky(i) ? Palette.balls[board.rules.pickyColor] : null;
-      _tubeBack(canvas, L.tubeRect(i), glow, doneColor, pickyColor);
+      if (glow > 0) _glowAround(canvas, ri, doneColor ?? Palette.gold, glow);
+      sprites.draw(
+        canvas,
+        sprites.get(
+          'back:${doneColor?.toARGB32()}:${pickyColor?.toARGB32()}',
+          r0.inflate(2),
+          (c) => _tubeBack(c, r0, doneColor, pickyColor),
+        ),
+        shift,
+      );
+      if (doneColor != null && glow > 0) {
+        canvas.drawRRect(_tubeShape(ri), Paint()..color = doneColor.withValues(alpha: 0.22 * glow));
+      }
 
       // Balls resting in the tube.
       final t = board.tubes[i];
@@ -393,13 +433,35 @@ class _BoardPainter extends CustomPainter {
         final jelly = wob * (0.4 + 0.6 * (k + 1) / math.max(1, n));
         _buddy(canvas, Offset(L.cx(i), y), t[k], L.ball / 2, mood, i * 7 + k * 13, lookX, jelly);
       }
-      _tubeFront(canvas, L.tubeRect(i), pickyColor);
+      final w = r0.width;
+      sprites.draw(
+        canvas,
+        sprites.get(
+          'front:${pickyColor?.toARGB32()}',
+          Rect.fromLTRB(r0.left - w * 0.15, r0.top - w * 0.7, r0.right + w * 0.15, r0.bottom + 2),
+          (c) => _tubeFront(c, r0, pickyColor),
+        ),
+        shift,
+      );
       if (board.isLocked(i)) _lockMark(canvas, L.tubeRect(i), board.lockRemaining);
       if (doneColor != null) {
         // The cork drops in (with a bounce) right after the tube completes.
         var drop = 1.0;
         if (i == glowTube && glowT > 0 && glowT < 1) drop = _seg(glowT, 0.0, 0.42);
-        _cork(canvas, L.tubeRect(i), doneColor, drop, i);
+        if (drop > 0) {
+          final fall = (1 - Curves.bounceOut.transform(drop)) * w * 1.8;
+          final h = w * 0.46;
+          sprites.draw(
+            canvas,
+            sprites.get(
+              'cork:${doneColor.toARGB32()}',
+              Rect.fromLTRB(r0.left - w * 0.1, r0.top - h * 0.95 - 3, r0.right + w * 0.1, r0.top + h * 0.3),
+              (c) => _cork(c, r0, doneColor, board.tubes[i].first),
+            ),
+            shift.translate(0, -fall),
+            opacity: _seg(drop, 0, 0.15),
+          );
+        }
       }
       canvas.restore();
     }
@@ -504,12 +566,24 @@ class _BoardPainter extends CustomPainter {
       }
     }
     // The disc.
-    canvas.drawCircle(
-      center,
-      radius * 1.18,
+    final halo = sprites.get(
+      'halo',
+      Rect.fromCircle(center: Offset.zero, radius: 100),
+      (c) => c.drawCircle(
+        Offset.zero,
+        62,
+        Paint()
+          ..color = Palette.gold
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16),
+      ),
+    );
+    canvas.drawImageRect(
+      halo.image,
+      Rect.fromLTWH(0, 0, halo.image.width.toDouble(), halo.image.height.toDouble()),
+      Rect.fromCircle(center: center, radius: radius * 1.18 * 100 / 62),
       Paint()
-        ..color = Palette.gold.withValues(alpha: 0.35 * a)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.25 + 1),
+        ..filterQuality = FilterQuality.low
+        ..color = Colors.white.withValues(alpha: 0.35 * a),
     );
     canvas.drawCircle(center, radius, Paint()..color = Colors.white.withValues(alpha: a));
     canvas.drawCircle(
@@ -546,12 +620,27 @@ class _BoardPainter extends CustomPainter {
     final L = layout;
     final b = breathAt(time);
     final row = Rect.fromLTRB(L.x0, L.tubeTop, L.x0 + L.tubes * L.tubeW + (L.tubes - 1) * L.gap, L.tubeTop + L.tubeH);
-    final glowRect = row.inflate(L.ball * (0.6 + 0.9 * b));
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(glowRect, Radius.circular(L.ball * 1.5)),
+    // Pre-blurred once; each frame just scales and fades it.
+    final base = row.inflate(L.ball * 0.6);
+    final pad = L.ball * 4;
+    final sprite = sprites.get(
+      'breath',
+      base.inflate(pad),
+      (c) => c.drawRRect(
+        RRect.fromRectAndRadius(base, Radius.circular(L.ball * 1.5)),
+        Paint()
+          ..color = const Color(0xFFFFD27A)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, L.ball * 1.2),
+      ),
+    );
+    final grow = L.ball * 0.9 * b;
+    canvas.drawImageRect(
+      sprite.image,
+      Rect.fromLTWH(0, 0, sprite.image.width.toDouble(), sprite.image.height.toDouble()),
+      sprite.bounds.inflate(grow),
       Paint()
-        ..color = const Color(0xFFFFD27A).withValues(alpha: 0.10 + 0.22 * b)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, L.ball * (0.8 + 0.8 * b)),
+        ..filterQuality = FilterQuality.low
+        ..color = Colors.white.withValues(alpha: 0.10 + 0.22 * b),
     );
     // A quiet cue under the tubes.
     final inhaling = time % 10 < 4;
@@ -660,6 +749,29 @@ class _BoardPainter extends CustomPainter {
     return (x1, endY - u * L.ball * 0.1, 1, 1);
   }
 
+  /// Soft colored glow behind a tube, from one pre-blurred image.
+  void _glowAround(Canvas canvas, Rect r, Color color, double glow) {
+    final r0 = layout.tubeRect(0);
+    final sprite = sprites.get(
+      'glow',
+      r0.inflate(40),
+      (c) => c.drawRRect(
+        _tubeShape(r0).inflate(2),
+        Paint()
+          ..color = Colors.white
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12),
+      ),
+    );
+    canvas.drawImageRect(
+      sprite.image,
+      Rect.fromLTWH(0, 0, sprite.image.width.toDouble(), sprite.image.height.toDouble()),
+      sprite.bounds.shift(Offset(r.left - r0.left, r.top - r0.top)),
+      Paint()
+        ..filterQuality = FilterQuality.low
+        ..colorFilter = ColorFilter.mode(color.withValues(alpha: 0.6 * glow), BlendMode.srcIn),
+    );
+  }
+
   static RRect _tubeShape(Rect r) => RRect.fromRectAndCorners(
     r,
     topLeft: Radius.circular(r.width * 0.12),
@@ -670,16 +782,8 @@ class _BoardPainter extends CustomPainter {
 
   /// Behind the balls: glow, the inside of the glass, and a colored light
   /// in finished tubes.
-  void _tubeBack(Canvas canvas, Rect r, double glow, Color? doneColor, Color? pickyColor) {
+  void _tubeBack(Canvas canvas, Rect r, Color? doneColor, Color? pickyColor) {
     final rr = _tubeShape(r);
-    if (glow > 0) {
-      canvas.drawRRect(
-        rr.inflate(2),
-        Paint()
-          ..color = (doneColor ?? Palette.gold).withValues(alpha: 0.6 * glow)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 18 * glow + 2),
-      );
-    }
     // The glass interior: cooler, darker toward the curved edges.
     final tint = pickyColor ?? const Color(0xFF9DB7CC);
     canvas.drawRRect(
@@ -703,10 +807,7 @@ class _BoardPainter extends CustomPainter {
           ..shader = LinearGradient(
             begin: Alignment.bottomCenter,
             end: Alignment.topCenter,
-            colors: [
-              doneColor.withValues(alpha: 0.32 + 0.25 * glow),
-              doneColor.withValues(alpha: 0.06),
-            ],
+            colors: [doneColor.withValues(alpha: 0.32), doneColor.withValues(alpha: 0.06)],
           ).createShader(r),
       );
     }
@@ -831,13 +932,11 @@ class _BoardPainter extends CustomPainter {
   }
 
   /// A cork stopper with a colored wax seal. [drop] 0..1 animates it in.
-  void _cork(Canvas canvas, Rect r, Color color, double drop, int seed) {
-    if (drop <= 0) return;
+  void _cork(Canvas canvas, Rect r, Color color, int seed) {
     final w = r.width;
     final h = w * 0.46;
-    final fall = (1 - Curves.bounceOut.transform(drop)) * w * 1.8;
-    final top = r.top - h * 0.95 - fall;
-    final a = _seg(drop, 0, 0.15);
+    final top = r.top - h * 0.95;
+    const a = 1.0;
     final body = Path()
       ..moveTo(r.center.dx - w * 0.44, top)
       ..lineTo(r.center.dx + w * 0.44, top)
@@ -935,7 +1034,16 @@ class _BoardPainter extends CustomPainter {
       // Little happy hop, each ball on its own beat.
       canvas.translate(0, -r * 0.08 * math.max(0, math.sin(time * 6 + phase)));
     }
-    _ball(canvas, Offset.zero, Palette.balls[colorIndex], r);
+    sprites.draw(
+      canvas,
+      sprites.get(
+        'ball:$colorIndex',
+        Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3),
+        (c) => _ball(c, Offset.zero, Palette.balls[colorIndex], r),
+        sharpness: 1.4,
+      ),
+      Offset.zero,
+    );
     _face(canvas, r, mood, phase, lookX == null ? 0 : ((lookX - c.dx) / (r * 4)).clamp(-1.0, 1.0));
     canvas.restore();
   }
@@ -1106,4 +1214,71 @@ class _Spark {
   final bool round;
   final double spin;
   const _Spark(this.origin, this.v, this.born, this.color, this.size, this.round, this.spin);
+}
+
+/// A pre-rendered piece of the board, and where it goes (logical pixels).
+class _Sprite {
+  final ui.Image image;
+  final Rect bounds;
+  _Sprite(this.image, this.bounds);
+}
+
+/// Everything on the board that looks the same frame after frame (glass,
+/// shelf, corks, balls, soft glows) is drawn once into an image and then just
+/// stamped. Gradients and blurs are the expensive part on phones.
+class _Sprites {
+  Size? _size;
+  double _dpr = 1;
+  final Map<String, _Sprite> _cache = {};
+
+  /// Throws everything away when the board size or screen density changes.
+  void prepare(Size size, double dpr) {
+    if (size == _size && dpr == _dpr) return;
+    dispose();
+    _size = size;
+    _dpr = dpr;
+  }
+
+  _Sprite get(String key, Rect bounds, void Function(Canvas) draw, {double sharpness = 1}) {
+    final hit = _cache[key];
+    if (hit != null) return hit;
+    final scale = _dpr * sharpness;
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec);
+    c.scale(scale);
+    c.translate(-bounds.left, -bounds.top);
+    draw(c);
+    final pic = rec.endRecording();
+    final img = pic.toImageSync(
+      math.max(1, (bounds.width * scale).ceil()),
+      math.max(1, (bounds.height * scale).ceil()),
+    );
+    pic.dispose();
+    return _cache[key] = _Sprite(img, bounds);
+  }
+
+  final Paint _paint = Paint()..filterQuality = FilterQuality.medium;
+
+  void draw(Canvas canvas, _Sprite s, Offset at, {double opacity = 1}) {
+    final src = Rect.fromLTWH(0, 0, s.image.width.toDouble(), s.image.height.toDouble());
+    if (opacity >= 1) {
+      canvas.drawImageRect(s.image, src, s.bounds.shift(at), _paint);
+    } else {
+      canvas.drawImageRect(
+        s.image,
+        src,
+        s.bounds.shift(at),
+        Paint()
+          ..filterQuality = FilterQuality.medium
+          ..color = Colors.white.withValues(alpha: opacity.clamp(0.0, 1.0)),
+      );
+    }
+  }
+
+  void dispose() {
+    for (final s in _cache.values) {
+      s.image.dispose();
+    }
+    _cache.clear();
+  }
 }

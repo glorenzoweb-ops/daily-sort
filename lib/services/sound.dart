@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'background.dart';
 import 'sound/ambience.dart';
 import 'sound/engine.dart';
 import 'sound/engine_native.dart' if (dart.library.js_interop) 'sound/engine_web.dart';
@@ -49,20 +50,39 @@ class Sounds {
     if (enabled) _oneShot(_pop, 0.55);
   }
 
+  /// Builds every sound without ever freezing the screen: the pour notes
+  /// first (needed on the first tap), then the rest piece by piece in the
+  /// background, then the saved soundscape and music so they start instantly.
   static Future<void> init() async {
     try {
       final e = createEngine();
-      await e.load([
-        for (final f in scale) pluck(f),
-        for (final f in _clinkFreqs) synthClink(f),
-        for (var v = 0; v < _chimes; v++) synthChime(v),
-        synthBirdsong(),
-        synthPop(),
-      ]);
+      await e.load(await runInBackground(() => [for (final f in scale) pluck(f)]));
+      await e.load(await runInBackground(() => [for (final f in _clinkFreqs) synthClink(f)]));
       _engine = e;
+      for (var v = 0; v < _chimes; v++) {
+        await e.load([await runInBackground(() => synthChime(v))]);
+      }
+      await e.load([await runInBackground(synthBirdsong)]);
+      await e.load([await runInBackground(synthPop)]);
+      await _prepareAmbience(ambience);
+      if (music) await _preparePad();
     } catch (_) {
-      _engine = null; // sound is a nice-to-have; never block the game
+      // Sound is a nice-to-have; never block the game.
     }
+  }
+
+  static Future<Float32List?> _prepareAmbience(Ambience a) async {
+    if (a == Ambience.off) return null;
+    return _loops[a] ??= await runInBackground(() => synthAmbience(a));
+  }
+
+  static Future<Float32List>? _padJob;
+  static Future<Float32List> _preparePad() async {
+    final ready = _pad;
+    if (ready != null) return ready;
+    return _pad = await (_padJob ??= hasBackgroundThread
+        ? runInBackground(() => synthPadAsync())
+        : synthPadAsync(breathe));
   }
 
   /// The note a pour plays: its color, raised by how high it lands.
@@ -142,8 +162,12 @@ class Sounds {
         _musicPlaying = false;
         return;
       }
-      e.playLoop('music', _pad ??= synthPad(), padRate, _musicVolume);
       _musicPlaying = true;
+      _preparePad().then((pad) {
+        if (!music || !_musicPlaying) return;
+        e.playLoop('music', pad, padRate, _musicVolume);
+      });
+      // The kalimba can start right away; the pad fades in when it's ready.
       _scheduleMelody(const Duration(seconds: 2));
     } catch (_) {}
   }
@@ -176,9 +200,11 @@ class Sounds {
         _ambiencePlaying = false;
         return;
       }
-      final samples = _loops[a] ??= synthAmbience(a);
-      e.playLoop('ambience', samples, ambienceRate, _ambienceVolume * (1 - 0.6 * _calm));
       _ambiencePlaying = true;
+      _prepareAmbience(a).then((samples) {
+        if (samples == null || ambience != a) return;
+        e.playLoop('ambience', samples, ambienceRate, _ambienceVolume * (1 - 0.6 * _calm));
+      });
     } catch (_) {}
   }
 }
