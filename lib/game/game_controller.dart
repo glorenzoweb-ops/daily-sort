@@ -60,7 +60,11 @@ class GameController extends ChangeNotifier {
   GameStatus status = GameStatus.playing;
   DayRecord? _record;
 
-  GameController(this.puzzle, this.storage) {
+  /// A past daily puzzle replayed from the archive: saved, but it never
+  /// touches the streak or the stats.
+  final bool archive;
+
+  GameController(this.puzzle, this.storage, {this.archive = false}) {
     board = puzzle.start;
     if (puzzle.isPractice) return; // practice is never saved
     _record = storage.day(puzzle.number);
@@ -217,6 +221,7 @@ class GameController extends ChangeNotifier {
       ..attempts = attempts
       ..moves = List.of(history);
     storage.saveDay(puzzle.number, r);
+    if (archive) return;
 
     final s = storage.stats;
     streakBefore = s.currentStreak(puzzle.number);

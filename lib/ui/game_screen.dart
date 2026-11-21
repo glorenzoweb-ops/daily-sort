@@ -11,14 +11,23 @@ import 'confetti.dart';
 import 'palette.dart';
 import 'sky.dart';
 import 'squish.dart';
+import '../services/friends.dart';
+import '../services/link.dart';
 import '../services/puzzles.dart';
+import '../services/share.dart';
+import 'archive.dart';
+import 'picture.dart';
 import 'sheets.dart';
+import 'social.dart';
 import 'streak.dart';
 
 class GameScreen extends StatefulWidget {
   final Storage storage;
   final PremiumService premium;
-  const GameScreen({super.key, required this.storage, required this.premium});
+
+  /// A friend's result from the link that opened the app (`?r=...`).
+  final String? incomingResult;
+  const GameScreen({super.key, required this.storage, required this.premium, this.incomingResult});
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -27,10 +36,15 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   // Both modes stay alive, so switching never loses your place.
   GameController? _daily, _unwind;
+
+  /// A past puzzle opened from the archive. It sits in the Daily slot until
+  /// you go back to today.
+  GameController? _archive;
   bool _inUnwind = false;
   late final Puzzles _puzzles = Puzzles(widget.storage);
+  late final Friends _friends = Friends(widget.storage);
   final _confetti = ConfettiController();
-  GameController? get _game => _inUnwind ? _unwind : _daily;
+  GameController? get _game => _inUnwind ? _unwind : (_archive ?? _daily);
 
   @override
   void initState() {
@@ -44,6 +58,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _daily?.dispose();
     _unwind?.dispose();
+    _archive?.dispose();
     super.dispose();
   }
 
@@ -72,12 +87,188 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
     // Get an Unwind puzzle ready while the player looks at today's board.
     Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
+    final fromFriend = await _takeIncoming(puzzle.number);
     if (!widget.storage.seenHowTo) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
       widget.storage.setSeenHowTo();
-      showCozySheet(context, const HowToSheet());
+      await showCozySheet(context, const HowToSheet());
     }
+    if (fromFriend != null) _toastFriend(fromFriend, puzzle.number);
+  }
+
+  bool _tookIncoming = false;
+
+  /// Saves the friend's result from the link that opened the app.
+  Future<FriendResult?> _takeIncoming(int today) async {
+    if (_tookIncoming) return null;
+    _tookIncoming = true;
+    final r = FriendResult.decode(widget.incomingResult);
+    clearIncomingParam();
+    if (r == null || r.number > today) return null;
+    final added = await _friends.add(r, today: today);
+    return added ? r : null;
+  }
+
+  void _toastFriend(FriendResult r, int today) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final isToday = r.number == today;
+      final mine = widget.storage.day(r.number);
+      final String text;
+      if (!isToday) {
+        text = '${r.name} solved #${r.number} in ${r.moves} moves. Find it in Past puzzles.';
+      } else if (mine?.solved ?? false) {
+        final m = mine!.solvedMoves!;
+        text = m < r.moves
+            ? '${r.name} took ${r.moves} moves. You beat them with $m!'
+            : (m == r.moves
+                  ? '${r.name} tied you at ${r.moves} moves!'
+                  : '${r.name} beat you: ${r.moves} moves vs your $m.');
+      } else {
+        text = '${r.name} solved today\'s puzzle in ${r.moves} moves. Your turn!';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.ink,
+          duration: const Duration(seconds: 6),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Row(
+            children: [
+              Avatar(r.name, size: 30),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(text, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              ),
+            ],
+          ),
+          action: SnackBarAction(label: 'Board', textColor: Palette.gold, onPressed: _openFriends),
+          persist: false,
+        ),
+      );
+    });
+  }
+
+  int get _today => _daily?.puzzle.number ?? puzzleNumberFor(DateTime.now());
+
+  BoardEntry? _myEntry() {
+    final d = _daily;
+    if (d == null || d.status != GameStatus.won) return null;
+    final rec = widget.storage.day(d.puzzle.number);
+    return BoardEntry(
+      widget.storage.myName,
+      rec?.solvedMoves ?? d.movesUsed,
+      rec?.attempts ?? d.attempts,
+      widget.storage.stats.currentStreak(d.puzzle.number),
+      isMe: true,
+    );
+  }
+
+  /// Shares today's result (with your link) or, before solving, an invite.
+  Future<void> _shareToFriends() async {
+    final d = _daily;
+    if (d == null) return;
+    final name = await ensureName(context, widget.storage);
+    final String text;
+    if (d.status == GameStatus.won) {
+      text = buildShareText(
+        puzzle: d.puzzle,
+        moves: d.movesUsed,
+        stars: d.stars,
+        attempts: d.attempts,
+        moveColors: d.moveColors,
+        streak: widget.storage.stats.currentStreak(d.puzzle.number),
+        link: resultLink(
+          FriendResult(
+            name: name.isEmpty ? 'A friend' : name,
+            number: d.puzzle.number,
+            moves: d.movesUsed,
+            attempts: d.attempts,
+            streak: widget.storage.stats.currentStreak(d.puzzle.number),
+          ).encode(),
+        ),
+      );
+    } else {
+      text =
+          'I\'m playing Daily Sort: one cozy color puzzle a day, same for everyone. Play today\'s with me: $shareUrl';
+    }
+    final r = await shareResult(text);
+    if (r == ShareOutcome.copied && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copied. Paste it in your group chat!'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  void _openFriends() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    showCozySheet(
+      context,
+      FriendsSheet(
+        storage: widget.storage,
+        friends: _friends,
+        today: _today,
+        me: _myEntry(),
+        onInvite: _shareToFriends,
+      ),
+    ).then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _openArchive() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    showCozySheet(
+      context,
+      ArchiveSheet(
+        today: _today,
+        storage: widget.storage,
+        premium: widget.premium,
+        onPick: (n) {
+          Navigator.of(context).pop();
+          _playArchive(n);
+        },
+        onUnlock: _openPaywall,
+      ),
+    );
+  }
+
+  Future<void> _openPaywall() async {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    final ok = await showCozySheet<bool>(context, PaywallSheet(premium: widget.premium, storage: widget.storage));
+    if (ok == true && mounted) {
+      setState(() {});
+      _openArchive();
+    }
+  }
+
+  Future<void> _playArchive(int number) async {
+    if (number == _today) {
+      _setMode(false);
+      return;
+    }
+    setState(() {
+      _inUnwind = false;
+      _archive?.dispose();
+      _archive = null;
+      _loadingArchive = true;
+    });
+    final puzzle = await _puzzles.archive(number);
+    if (!mounted) return;
+    setState(() {
+      _loadingArchive = false;
+      _archive = GameController(puzzle, widget.storage, archive: true);
+    });
+  }
+
+  bool _loadingArchive = false;
+
+  void _backToToday() {
+    setState(() {
+      _archive?.dispose();
+      _archive = null;
+    });
   }
 
   Future<void> _newUnwind() async {
@@ -93,6 +284,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Daily ⇄ Unwind. Each keeps its board exactly as you left it.
   void _setMode(bool unwind) {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    if (!unwind && !_inUnwind && _archive != null) _backToToday();
     if (unwind == _inUnwind) return;
     setState(() => _inUnwind = unwind);
     if (unwind && (_unwind == null || _unwind!.status == GameStatus.won)) _newUnwind();
@@ -133,6 +325,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       final g = _game;
       if (g != null &&
           !g.puzzle.isPractice &&
+          !g.archive &&
           streakMilestones.contains(g.streakAfter) &&
           g.streakAfter > g.streakBefore) {
         _confetti.burst();
@@ -196,6 +389,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         premium: widget.premium,
         showResult: !statsOnly,
         onPractice: _startPractice,
+        friends: _friends.forDay(g.puzzle.number),
+        me: g.archive ? null : _myEntry(),
+        onFriends: _openFriends,
+        onShareToFriends: _shareToFriends,
+        onArchive: _openArchive,
+        onPlus: _openPaywall,
       ),
     );
   }
@@ -212,7 +411,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: g == null
+                child: g == null || (_loadingArchive && !_inUnwind)
                     ? _Loading(unwind: _inUnwind, onBack: _daily == null ? null : () => _setMode(false))
                     : _buildGame(g),
               ),
@@ -251,6 +450,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         _openSound,
                       ),
                       const Spacer(),
+                      _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
                       _IconBtn(
                         Icons.bar_chart_rounded,
                         'Statistics',
@@ -276,7 +476,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             Text(
               p.isPractice
                   ? 'No limits. Just sort and breathe.'
-                  : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}',
+                  : (g.archive
+                        ? '#${p.number}  ·  ${dayLabel(p.day)}  ·  from the archive'
+                        : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}'),
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
             ),
             const SizedBox(height: 18),
@@ -284,7 +486,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
-                if (!p.isPractice) ...[
+                if (g.archive) ...[
+                  const SizedBox(width: 10),
+                  _TodayPill(onTap: () => _setMode(false)),
+                ] else if (!p.isPractice) ...[
                   const SizedBox(width: 10),
                   Builder(
                     builder: (context) {
@@ -314,10 +519,54 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     : Palette.inkSoft,
               ),
             ),
+            if (!p.isPractice && !g.archive && _friends.forDay(p.number).isNotEmpty) ...[
+              const SizedBox(height: 8),
+              FriendsChip(
+                today: _friends.forDay(p.number),
+                myMoves: g.status == GameStatus.won ? g.movesUsed : null,
+                onTap: _openFriends,
+              ),
+            ],
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: BoardView(key: ObjectKey(g), game: g, onWinAnimationDone: _onWin, breathe: p.isPractice),
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  // The picture takes the empty wall above the shelf, and
+                  // steps aside on short screens.
+                  final frameH = (box.maxHeight * 0.3).clamp(0.0, 150.0);
+                  return Column(
+                    children: [
+                      if (frameH >= 64)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: SizedBox(
+                            height: frameH,
+                            child: PictureFrame(
+                              key: ObjectKey(g),
+                              scene: p.isPractice ? sceneForBoard(p.start) : sceneForNumber(p.number),
+                              colored: completedColors(g.board),
+                              colors: p.colors,
+                              solved: g.status == GameStatus.won,
+                              caption: p.isPractice
+                                  ? 'Mystery picture'
+                                  : (g.archive ? 'Picture #${p.number}' : "Today's picture"),
+                              onTap: g.status == GameStatus.won ? () => _openResults() : null,
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: BoardView(
+                            key: ObjectKey(g),
+                            game: g,
+                            onWinAnimationDone: _onWin,
+                            breathe: p.isPractice,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
             _BottomBar(game: g, onResults: _openResults, onNext: _startPractice),
@@ -327,6 +576,38 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       },
     );
   }
+}
+
+/// "Back to today" while replaying an archive puzzle.
+class _TodayPill extends StatelessWidget {
+  final VoidCallback onTap;
+  const _TodayPill({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Squish(
+    child: Material(
+      color: Colors.white,
+      shape: const StadiumBorder(side: BorderSide(color: Palette.tubeStroke, width: 2)),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.today_rounded, size: 20, color: Palette.ink),
+              SizedBox(width: 6),
+              Text(
+                'Today',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Palette.ink),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _MovesPill extends StatelessWidget {
@@ -571,7 +852,7 @@ class ModeSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const segW = 88.0, h = 40.0;
+    const segW = 84.0, h = 40.0;
     Widget seg(bool isUnwind, IconData icon, String label) {
       final on = unwind == isUnwind;
       return Semantics(
