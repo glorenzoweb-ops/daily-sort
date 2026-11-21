@@ -57,6 +57,10 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/ui/board_view.dart` | Custom-painted board: glass tubes on a wooden shelf, glossy ball buddies, pours with trails and squash, corks on finished tubes, and the win where colors stream into your painting |
 | `lib/ui/sky.dart` | Background sky that follows the player's local time (morning, day, sunset, starry night) |
 | `lib/ui/squish.dart` | Soft press feedback for every button |
+| `lib/services/puzzles.dart` | Hands out puzzles with no waiting: saves daily puzzles on the device, prepares tomorrow's after a win and the next Unwind puzzle ahead of time |
+| `lib/services/background.dart` | Runs heavy work (sound synthesis, puzzle generation) off the UI thread on phones, between frames on the web |
+
+**Performance notes.** The board stamps pre-rendered images (glass, shelf, corks, balls, glows) instead of redrawing gradients and blurs every frame, and drops to ~24 fps when nothing is moving. The sky redraws its static parts every 2 minutes and moves clouds and stars at 20 fps. Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
 | `lib/services/share.dart` | Emoji share card and native share sheet (clipboard fallback on desktop web) |
 | `lib/services/premium.dart` | Hook for the future Daily Sort+ subscription |
 

@@ -31,9 +31,9 @@ void main() {
     expect(c.reduce(math.max), lessThan(0.5));
   });
 
-  test('music pad is soft, never clips, and loops seamlessly', () {
+  test('music pad is soft, never clips, and loops seamlessly', () async {
     final sw = Stopwatch()..start();
-    final s = synthPad();
+    final s = await synthPadAsync();
     // ignore: avoid_print
     print('pad synthesized in ${sw.elapsedMilliseconds} ms');
     expect(s.length, padRate * 32);

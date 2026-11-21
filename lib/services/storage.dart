@@ -103,6 +103,17 @@ class Storage {
 
   Future<void> saveStats(Stats s) => _prefs.setString('stats', jsonEncode(s.toJson()));
 
+  /// Daily puzzles already generated on this device (see puzzle_cache.dart).
+  String? cachedPuzzle(int number) => _prefs.getString('puzzle_$number');
+  Future<void> cachePuzzle(int number, String raw) async {
+    await _prefs.setString('puzzle_$number', raw);
+    // Keep only yesterday onward.
+    for (final k in _prefs.getKeys().where((k) => k.startsWith('puzzle_')).toList()) {
+      final n = int.tryParse(k.substring(7));
+      if (n != null && n < number - 1) await _prefs.remove(k);
+    }
+  }
+
   bool get seenHowTo => _prefs.getBool('seenHowTo') ?? false;
   Future<void> setSeenHowTo() => _prefs.setBool('seenHowTo', true);
 
