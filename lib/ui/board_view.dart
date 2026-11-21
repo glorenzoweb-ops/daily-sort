@@ -8,6 +8,7 @@ import '../game/game_controller.dart';
 import '../services/feedback.dart';
 import '../services/sound.dart';
 import 'palette.dart';
+import 'solve_art.dart';
 
 /// Geometry for laying tubes out in one row, sized to the available width.
 class BoardLayout {
@@ -64,7 +65,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   late final AnimationController _pour = AnimationController(vsync: this);
   late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 360));
   late final AnimationController _glow = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-  late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
+  late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 3400));
 
   // A clock that always runs, for idle life (breathing, blinking), jelly
   // wobble and particles.
@@ -79,6 +80,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   Poured? _pending;
   int? _shakeTube;
   int? _glowTube;
+  List<PourInfo> _winPours = const [];
   BoardLayout? _layout;
 
   @override
@@ -154,6 +156,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (p.completedTube) {
       Haptics.tubeComplete();
       Sounds.tubeComplete(p.color);
+      Future<void>.delayed(const Duration(milliseconds: 330), Sounds.pop);
       _glowTube = p.move.to;
       _glow.forward(from: 0);
       _burst(p.move.to, p.color);
@@ -166,6 +169,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (p.won) {
       Haptics.win();
       Sounds.solved();
+      _winPours = widget.game.pours;
       _win.forward(from: 0);
     }
     setState(() {});
@@ -262,6 +266,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                 glowTube: _glowTube,
                 glowT: _glow.value,
                 winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
+                winPours: _win.isAnimating ? _winPours : const [],
                 won: game.status == GameStatus.won && _pending == null,
                 time: _time.value,
                 landAt: _landAt,
@@ -297,8 +302,10 @@ class _BoardPainter extends CustomPainter {
   final double shakeAt;
   final int? lookTube;
   final bool breathe;
+  final List<PourInfo> winPours;
 
   _BoardPainter({
+    this.winPours = const [],
     this.breathe = false,
     required this.time,
     required this.landAt,
@@ -334,13 +341,14 @@ class _BoardPainter extends CustomPainter {
     }
     final lookX = lookTube == null ? null : L.cx(lookTube!);
     if (breathe) _breathing(canvas, size);
+    _shelf(canvas);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
       if (i == shakeTube && shakeT > 0 && shakeT < 1) {
         dx = math.sin(shakeT * math.pi * 6) * 7 * (1 - shakeT);
       }
       if (won && winT > 0) {
-        final t = _seg(winT, i * 0.07, i * 0.07 + 0.35);
+        final t = _seg(winT, i * 0.03, i * 0.03 + 0.15);
         dy = -math.sin(t * math.pi) * L.ball * 0.55;
       }
       canvas.save();
@@ -357,8 +365,9 @@ class _BoardPainter extends CustomPainter {
       var glow = 0.0;
       if (i == glowTube && glowT > 0 && glowT < 1) glow = math.sin(glowT * math.pi);
       if (won && complete) glow = math.max(glow, 0.55 + 0.25 * math.sin(winT * math.pi * 4 + i));
-      _tube(canvas, L.tubeRect(i), glow, complete ? Palette.balls[board.tubes[i].first] : null);
-      if (board.isPicky(i)) _pickyMark(canvas, L.tubeRect(i), Palette.balls[board.rules.pickyColor]);
+      final doneColor = complete ? Palette.balls[board.tubes[i].first] : null;
+      final pickyColor = board.isPicky(i) ? Palette.balls[board.rules.pickyColor] : null;
+      _tubeBack(canvas, L.tubeRect(i), glow, doneColor, pickyColor);
 
       // Balls resting in the tube.
       final t = board.tubes[i];
@@ -384,12 +393,146 @@ class _BoardPainter extends CustomPainter {
         final jelly = wob * (0.4 + 0.6 * (k + 1) / math.max(1, n));
         _buddy(canvas, Offset(L.cx(i), y), t[k], L.ball / 2, mood, i * 7 + k * 13, lookX, jelly);
       }
+      _tubeFront(canvas, L.tubeRect(i), pickyColor);
       if (board.isLocked(i)) _lockMark(canvas, L.tubeRect(i), board.lockRemaining);
+      if (doneColor != null) {
+        // The cork drops in (with a bounce) right after the tube completes.
+        var drop = 1.0;
+        if (i == glowTube && glowT > 0 && glowT < 1) drop = _seg(glowT, 0.0, 0.42);
+        _cork(canvas, L.tubeRect(i), doneColor, drop, i);
+      }
       canvas.restore();
     }
     if (p != null) _flying(canvas, p);
     canvas.restore();
     _drawSparks(canvas);
+    if (winPours.isNotEmpty) _winPainting(canvas, size);
+  }
+
+  /// A wooden shelf the tubes stand on, with a soft shadow under each tube.
+  void _shelf(Canvas canvas) {
+    final L = layout;
+    final y = L.tubeTop + L.tubeH;
+    final left = L.x0 - L.gap * 1.2, right = L.x0 + L.tubes * L.tubeW + (L.tubes - 1) * L.gap + L.gap * 1.2;
+    final h = L.ball * 0.34;
+    final top = Rect.fromLTRB(left, y - h * 0.25, right, y + h * 0.55);
+    final front = Rect.fromLTRB(left, top.bottom - 1, right, top.bottom + h * 0.6);
+    // Shadow the shelf casts.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(front.shift(Offset(0, h * 0.5)).inflate(h * 0.2), Radius.circular(h)),
+      Paint()
+        ..color = const Color(0x22301E0A)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.9),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndCorners(front, bottomLeft: Radius.circular(h * 0.5), bottomRight: Radius.circular(h * 0.5)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFD9A877), Color(0xFFC18E5E)],
+        ).createShader(front),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(top, Radius.circular(h * 0.4)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFF6D9B4), Color(0xFFE9C392)],
+        ).createShader(top),
+    );
+    // Wood grain.
+    final grain = Paint()
+      ..color = const Color(0x1A7A4A1E)
+      ..strokeWidth = 1;
+    for (var k = 0; k < 3; k++) {
+      final gy = top.top + top.height * (0.3 + k * 0.22);
+      canvas.drawLine(Offset(left + 10 + k * 23, gy), Offset(right - 14 - k * 31, gy), grain);
+    }
+    // Contact shadows.
+    for (var i = 0; i < L.tubes; i++) {
+      final c = Offset(L.cx(i), y + h * 0.05);
+      canvas.drawOval(
+        Rect.fromCenter(center: c, width: L.tubeW * 1.15, height: h * 0.7),
+        Paint()
+          ..color = const Color(0x33402810)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.25),
+      );
+    }
+  }
+
+  /// The win: colors stream out of the tubes and paint the solve painting in
+  /// a glowing disc over the board, then it floats away to the result card.
+  void _winPainting(Canvas canvas, Size size) {
+    final L = layout;
+    final appear = Curves.easeOutBack.transform(_seg(winT, 0.18, 0.32));
+    final leave = Curves.easeIn.transform(_seg(winT, 0.88, 1.0));
+    final a = (_seg(winT, 0.18, 0.26) * (1 - leave)).clamp(0.0, 1.0);
+    if (a <= 0) return;
+    final center = Offset(size.width / 2, L.tubeTop + L.tubeH * 0.45);
+    final radius = math.min(size.width * 0.44, L.tubeH * 0.72) * appear * (1 - 0.35 * leave);
+    // Soft veil that fades the board behind the disc.
+    final veil = Rect.fromCircle(center: center, radius: math.max(1, radius * 2.4));
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            const Color(0xFFFFF7EA).withValues(alpha: 0.7 * a),
+            const Color(0x00FFF7EA),
+          ],
+        ).createShader(veil),
+    );
+    // Streams of color from each tube into the disc.
+    final streamA = _seg(winT, 0.25, 0.35) * (1 - _seg(winT, 0.72, 0.82));
+    if (streamA > 0) {
+      for (var i = 0; i < board.tubeCount; i++) {
+        if (board.tubes[i].isEmpty) continue;
+        final color = Palette.balls[board.tubes[i].first];
+        final from = Offset(L.cx(i), L.tubeTop);
+        final ctrl = Offset((from.dx + center.dx) / 2, L.tubeTop - L.ball * 2.5);
+        for (var k = 0; k < 9; k++) {
+          final s = (time * 0.9 + k / 9 + i * 0.13) % 1.0;
+          final q = Offset.lerp(Offset.lerp(from, ctrl, s)!, Offset.lerp(ctrl, center, s)!, s)!;
+          canvas.drawCircle(
+            q,
+            L.ball * (0.16 - 0.08 * s),
+            Paint()..color = color.withValues(alpha: streamA * a * (1 - s * 0.6)),
+          );
+        }
+      }
+    }
+    // The disc.
+    canvas.drawCircle(
+      center,
+      radius * 1.18,
+      Paint()
+        ..color = Palette.gold.withValues(alpha: 0.35 * a)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.25 + 1),
+    );
+    canvas.drawCircle(center, radius, Paint()..color = Colors.white.withValues(alpha: a));
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Palette.gold.withValues(alpha: a),
+    );
+    if (radius > 4) {
+      canvas.save();
+      canvas.translate(center.dx - radius, center.dy - radius);
+      canvas.saveLayer(Rect.fromLTWH(0, 0, radius * 2, radius * 2), Paint()..color = Colors.black.withValues(alpha: a));
+      SolveArtPainter(
+        pours: winPours,
+        tubeCount: board.tubeCount,
+        progress: Curves.easeInOut.transform(_seg(winT, 0.3, 0.85)),
+        showGuides: false,
+      ).paint(canvas, Size(radius * 2, radius * 2));
+      canvas.restore();
+      canvas.restore();
+    }
   }
 
   /// 10-second breath: 4 s in, 6 s out (about 6 breaths a minute, the pace
@@ -464,106 +607,278 @@ class _BoardPainter extends CustomPainter {
     final dstLen = p.before.tubes[p.move.to].length;
     const stagger = 0.13;
     final span = 1 - stagger * (p.count - 1);
+    final color = Palette.balls[p.color];
     for (var q = 0; q < p.count; q++) {
-      final t = _seg(pourT, q * stagger, q * stagger + span);
       // q = 0 is the top ball; it was already lifted when selected.
       final startY = q == 0 ? L.liftY : L.slotY(src.length - 1 - q);
       final endY = L.slotY(dstLen + q);
-      final x0 = L.cx(p.move.from), x1 = L.cx(p.move.to);
-      double x, y;
-      var scaleX = 1.0, scaleY = 1.0;
-      if (t < 0.22) {
-        final u = Curves.easeOut.transform(_seg(t, 0, 0.22));
-        x = x0;
-        y = startY + (L.liftY - startY) * u;
-      } else if (t < 0.62) {
-        final u = Curves.easeInOut.transform(_seg(t, 0.22, 0.62));
-        x = x0 + (x1 - x0) * u;
-        y = L.liftY - math.sin(u * math.pi) * L.ball * 0.55;
-      } else if (t < 0.9) {
-        final u = Curves.easeIn.transform(_seg(t, 0.62, 0.9));
-        x = x1;
-        y = L.liftY + (endY - L.liftY) * u;
-        scaleY = 1 + 0.08 * u;
-        scaleX = 1 - 0.05 * u;
-      } else {
-        // Little squash on landing.
-        final u = math.sin(_seg(t, 0.9, 1) * math.pi);
-        x = x1;
-        y = endY;
-        scaleX = 1 + 0.12 * u;
-        scaleY = 1 - 0.12 * u;
+      double tq(double t) => _seg(t, q * stagger, q * stagger + span);
+      final t = tq(pourT);
+      // A soft comet trail while the ball is in the air.
+      if (t > 0.05 && t < 0.86) {
+        for (var g = 1; g <= 4; g++) {
+          final gt = tq(pourT - g * 0.035 * span);
+          final (gx, gy, _, _) = _flight(gt, startY, endY, p);
+          canvas.drawCircle(
+            Offset(gx, gy),
+            L.ball / 2 * (1 - g * 0.13),
+            Paint()..color = color.withValues(alpha: 0.22 - g * 0.045),
+          );
+        }
       }
+      final (x, y, scaleX, scaleY) = _flight(t, startY, endY, p);
       canvas.save();
       canvas.translate(x, y + (1 - scaleY) * L.ball / 2);
       canvas.scale(scaleX, scaleY);
-      _buddy(canvas, Offset.zero, p.color, L.ball / 2, Mood.excited, 99 + q, x1, 0);
+      _buddy(canvas, Offset.zero, p.color, L.ball / 2, Mood.excited, 99 + q, L.cx(p.move.to), 0);
       canvas.restore();
     }
   }
 
-  void _tube(Canvas canvas, Rect r, double glow, Color? doneColor) {
-    final radius = Radius.circular(r.width / 2);
-    final rr = RRect.fromRectAndCorners(
-      r,
-      topLeft: Radius.circular(r.width * 0.12),
-      topRight: Radius.circular(r.width * 0.12),
-      bottomLeft: radius,
-      bottomRight: radius,
-    );
+  /// Where a pouring ball is at time [t] (0..1): position and squash/stretch.
+  (double, double, double, double) _flight(double t, double startY, double endY, Poured p) {
+    final L = layout;
+    final x0 = L.cx(p.move.from), x1 = L.cx(p.move.to);
+    if (t < 0.22) {
+      final u = Curves.easeOut.transform(_seg(t, 0, 0.22));
+      return (x0, startY + (L.liftY - startY) * u, 1 - 0.06 * u, 1 + 0.08 * u);
+    } else if (t < 0.62) {
+      final u = Curves.easeInOut.transform(_seg(t, 0.22, 0.62));
+      // Stretch along the motion while it travels sideways.
+      final speed = math.sin(u * math.pi);
+      return (x0 + (x1 - x0) * u, L.liftY - speed * L.ball * 0.55, 1 + 0.14 * speed, 1 - 0.1 * speed);
+    } else if (t < 0.86) {
+      final u = Curves.easeIn.transform(_seg(t, 0.62, 0.86));
+      return (x1, L.liftY + (endY - L.liftY) * u, 1 - 0.07 * u, 1 + 0.12 * u);
+    } else if (t < 0.93) {
+      // Squash on landing...
+      final u = math.sin(_seg(t, 0.86, 0.93) * math.pi);
+      return (x1, endY, 1 + 0.16 * u, 1 - 0.16 * u);
+    }
+    // ...then a tiny hop as it settles.
+    final u = math.sin(_seg(t, 0.93, 1) * math.pi);
+    return (x1, endY - u * L.ball * 0.1, 1, 1);
+  }
+
+  static RRect _tubeShape(Rect r) => RRect.fromRectAndCorners(
+    r,
+    topLeft: Radius.circular(r.width * 0.12),
+    topRight: Radius.circular(r.width * 0.12),
+    bottomLeft: Radius.circular(r.width / 2),
+    bottomRight: Radius.circular(r.width / 2),
+  );
+
+  /// Behind the balls: glow, the inside of the glass, and a colored light
+  /// in finished tubes.
+  void _tubeBack(Canvas canvas, Rect r, double glow, Color? doneColor, Color? pickyColor) {
+    final rr = _tubeShape(r);
     if (glow > 0) {
       canvas.drawRRect(
         rr.inflate(2),
         Paint()
-          ..color = (doneColor ?? Palette.gold).withValues(alpha: 0.55 * glow)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16 * glow + 2),
+          ..color = (doneColor ?? Palette.gold).withValues(alpha: 0.6 * glow)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 18 * glow + 2),
       );
     }
-    canvas.drawRRect(rr.shift(const Offset(0, 4)), Paint()..color = const Color(0x0F000000));
-    canvas.drawRRect(rr, Paint()..color = Palette.tubeFill);
+    // The glass interior: cooler, darker toward the curved edges.
+    final tint = pickyColor ?? const Color(0xFF9DB7CC);
     canvas.drawRRect(
       rr,
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(2.5, r.width * 0.055)
-        ..color = Palette.tubeStroke,
+        ..shader = LinearGradient(
+          colors: [
+            tint.withValues(alpha: pickyColor != null ? 0.32 : 0.30),
+            Colors.white.withValues(alpha: 0.55),
+            Colors.white.withValues(alpha: 0.45),
+            tint.withValues(alpha: pickyColor != null ? 0.38 : 0.36),
+          ],
+          stops: const [0, 0.3, 0.62, 1],
+        ).createShader(r),
     );
-    // Glass highlight.
-    final hl = Rect.fromLTWH(r.left + r.width * 0.16, r.top + r.width * 0.25, r.width * 0.1, r.height * 0.55);
-    canvas.drawRRect(RRect.fromRectAndRadius(hl, Radius.circular(hl.width)), Paint()..color = const Color(0x66FFFFFF));
     if (doneColor != null) {
-      // Little colored cap on completed tubes.
-      final cap = Rect.fromLTWH(r.left - 3, r.top - 9, r.width + 6, 11);
-      canvas.drawRRect(RRect.fromRectAndRadius(cap, const Radius.circular(5)), Paint()..color = doneColor);
+      // A finished tube fills with its color's light.
+      canvas.drawRRect(
+        rr,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.bottomCenter,
+            end: Alignment.topCenter,
+            colors: [
+              doneColor.withValues(alpha: 0.32 + 0.25 * glow),
+              doneColor.withValues(alpha: 0.06),
+            ],
+          ).createShader(r),
+      );
+    }
+    // Back wall of the glass bottom.
+    final w = r.width;
+    canvas.drawArc(
+      Rect.fromLTWH(r.left + w * 0.12, r.bottom - w * 0.9, w * 0.76, w * 0.8),
+      0.15 * math.pi,
+      0.7 * math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.05
+        ..color = const Color(0x1A31506A),
+    );
+  }
+
+  /// In front of the balls: the thick glass rim, the lip and the highlights.
+  void _tubeFront(Canvas canvas, Rect r, Color? pickyColor) {
+    final rr = _tubeShape(r);
+    final w = r.width;
+    final sw = math.max(3.0, w * 0.075);
+    // A faint sheen over everything inside.
+    canvas.drawRRect(
+      rr,
+      Paint()
+        ..shader = LinearGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.18),
+            Colors.white.withValues(alpha: 0),
+            Colors.white.withValues(alpha: 0.06),
+          ],
+          stops: const [0, 0.45, 1],
+        ).createShader(r),
+    );
+    // Thick rim: bright on the lit left side, deeper on the right.
+    canvas.drawRRect(
+      rr.deflate(sw / 2),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = sw
+        ..shader = LinearGradient(
+          colors: pickyColor != null
+              ? [Color.lerp(pickyColor, Colors.white, 0.45)!, pickyColor, Color.lerp(pickyColor, Colors.black, 0.15)!]
+              : const [Color(0xFFFFFFFF), Color(0xFFD5E0E8), Color(0xFFAFC0CD)],
+          stops: const [0.05, 0.5, 1],
+        ).createShader(r),
+    );
+    // Inner edge of the glass wall: gives it thickness.
+    canvas.drawRRect(
+      rr.deflate(sw + 0.5),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0x2231506A),
+    );
+    // Long highlight on the left and a thin one on the right.
+    final hl = Rect.fromLTWH(r.left + w * 0.17, r.top + w * 0.32, w * 0.1, r.height * 0.62);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(hl, Radius.circular(hl.width)),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.white.withValues(alpha: 0.85), Colors.white.withValues(alpha: 0.05)],
+        ).createShader(hl),
+    );
+    final hl2 = Rect.fromLTWH(r.right - w * 0.24, r.top + w * 0.45, w * 0.045, r.height * 0.35);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(hl2, Radius.circular(hl2.width)),
+      Paint()..color = Colors.white.withValues(alpha: 0.45),
+    );
+    // Caustic: light focused through the round bottom.
+    canvas.drawArc(
+      Rect.fromLTWH(r.left + w * 0.22, r.bottom - w * 0.62, w * 0.56, w * 0.46),
+      0.2 * math.pi,
+      0.6 * math.pi,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = w * 0.04
+        ..color = Colors.white.withValues(alpha: 0.6),
+    );
+    // The lip around the opening.
+    final lip = Rect.fromCenter(center: Offset(r.center.dx, r.top + w * 0.02), width: w * 1.1, height: w * 0.24);
+    canvas.drawOval(
+      lip,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = sw * 0.9
+        ..shader = LinearGradient(
+          colors: pickyColor != null
+              ? [Color.lerp(pickyColor, Colors.white, 0.5)!, pickyColor]
+              : const [Color(0xFFFFFFFF), Color(0xFFB9C9D5)],
+        ).createShader(lip),
+    );
+    canvas.drawArc(
+      lip.deflate(sw * 0.2),
+      math.pi * 1.1,
+      math.pi * 0.45,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = sw * 0.35
+        ..strokeCap = StrokeCap.round
+        ..color = Colors.white,
+    );
+    if (pickyColor != null) {
+      // Target dot above a picky tube: "only this color".
+      final c = Offset(r.center.dx, r.top - w * 0.42);
+      canvas.drawCircle(c, w * 0.2, Paint()..color = pickyColor);
+      canvas.drawCircle(
+        c,
+        w * 0.2,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..color = Colors.white,
+      );
     }
   }
 
-  /// Picky tube: tinted glass, a colored base and a target dot above.
-  void _pickyMark(Canvas canvas, Rect r, Color color) {
-    final rr = RRect.fromRectAndCorners(
-      r,
-      topLeft: Radius.circular(r.width * 0.12),
-      topRight: Radius.circular(r.width * 0.12),
-      bottomLeft: Radius.circular(r.width / 2),
-      bottomRight: Radius.circular(r.width / 2),
-    );
-    canvas.drawRRect(rr, Paint()..color = color.withValues(alpha: 0.12));
-    canvas.drawRRect(
-      rr,
+  /// A cork stopper with a colored wax seal. [drop] 0..1 animates it in.
+  void _cork(Canvas canvas, Rect r, Color color, double drop, int seed) {
+    if (drop <= 0) return;
+    final w = r.width;
+    final h = w * 0.46;
+    final fall = (1 - Curves.bounceOut.transform(drop)) * w * 1.8;
+    final top = r.top - h * 0.95 - fall;
+    final a = _seg(drop, 0, 0.15);
+    final body = Path()
+      ..moveTo(r.center.dx - w * 0.44, top)
+      ..lineTo(r.center.dx + w * 0.44, top)
+      ..lineTo(r.center.dx + w * 0.34, top + h)
+      ..quadraticBezierTo(r.center.dx, top + h * 1.12, r.center.dx - w * 0.34, top + h)
+      ..close();
+    final bounds = Rect.fromLTRB(r.center.dx - w * 0.44, top, r.center.dx + w * 0.44, top + h);
+    canvas.drawPath(
+      body,
       Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = math.max(2.5, r.width * 0.06)
-        ..color = color.withValues(alpha: 0.75),
+        ..shader = LinearGradient(
+          colors: [
+            const Color(0xFFE8BE86).withValues(alpha: a),
+            const Color(0xFFD5A266).withValues(alpha: a),
+            const Color(0xFFB98447).withValues(alpha: a),
+          ],
+        ).createShader(bounds),
     );
-    final c = Offset(r.center.dx, r.top - r.width * 0.42);
-    canvas.drawCircle(c, r.width * 0.2, Paint()..color = color);
+    // Cork speckles.
+    final rnd = math.Random(seed);
+    final dot = Paint()..color = const Color(0x55835426).withValues(alpha: 0.35 * a);
+    for (var k = 0; k < 7; k++) {
+      canvas.drawCircle(
+        Offset(bounds.left + w * (0.18 + rnd.nextDouble() * 0.52), top + h * (0.35 + rnd.nextDouble() * 0.5)),
+        w * 0.025,
+        dot,
+      );
+    }
+    // Top face.
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(r.center.dx, top), width: w * 0.88, height: w * 0.22),
+      Paint()..color = const Color(0xFFF0CF9E).withValues(alpha: a),
+    );
+    // Wax seal in the tube's color.
+    final seal = Offset(r.center.dx, top + h * 0.55);
+    canvas.drawCircle(seal, w * 0.16, Paint()..color = Color.lerp(color, Colors.black, 0.15)!.withValues(alpha: a));
+    canvas.drawCircle(seal.translate(-w * 0.03, -w * 0.03), w * 0.11, Paint()..color = color.withValues(alpha: a));
     canvas.drawCircle(
-      c,
-      r.width * 0.2,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = Colors.white,
+      seal.translate(-w * 0.06, -w * 0.06),
+      w * 0.035,
+      Paint()..color = Colors.white.withValues(alpha: 0.7 * a),
     );
   }
 
@@ -711,15 +1026,68 @@ class _BoardPainter extends CustomPainter {
     }
   }
 
+  /// A glossy candy ball: soft contact shadow, deep body shading, bounced
+  /// light from below, a crisp specular highlight and a fine outline.
   void _ball(Canvas canvas, Offset c, Color color, double r) {
-    canvas.drawCircle(c.translate(0, r * 0.1), r, Paint()..color = const Color(0x1F000000));
-    final shader = RadialGradient(
-      center: const Alignment(-0.35, -0.4),
-      radius: 0.95,
-      colors: [Color.lerp(color, Colors.white, 0.75)!, color, Color.lerp(color, Colors.black, 0.12)!],
-      stops: const [0.0, 0.32, 1.0],
-    ).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawCircle(c, r, Paint()..shader = shader);
+    // Contact shadow on whatever is underneath.
+    final sh = Rect.fromCenter(center: c.translate(0, r * 0.88), width: r * 1.7, height: r * 0.55);
+    canvas.drawOval(
+      sh,
+      Paint()..shader = const RadialGradient(colors: [Color(0x40301A08), Color(0x00301A08)]).createShader(sh),
+    );
+    final rect = Rect.fromCircle(center: c, radius: r);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.32, -0.38),
+          radius: 1.05,
+          colors: [
+            Color.lerp(color, Colors.white, 0.6)!,
+            Color.lerp(color, Colors.white, 0.08)!,
+            color,
+            Color.lerp(color, Colors.black, 0.28)!,
+          ],
+          stops: const [0.0, 0.3, 0.62, 1.0],
+        ).createShader(rect),
+    );
+    // Bounced light along the bottom edge.
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(0.15, 1.05),
+          radius: 0.62,
+          colors: [Color.lerp(color, Colors.white, 0.45)!.withValues(alpha: 0.75), color.withValues(alpha: 0)],
+        ).createShader(rect),
+    );
+    // Soft broad shine, then the sharp highlight.
+    canvas.drawCircle(
+      c.translate(-r * 0.3, -r * 0.35),
+      r * 0.55,
+      Paint()
+        ..shader = RadialGradient(colors: [Colors.white.withValues(alpha: 0.38), Colors.white.withValues(alpha: 0)])
+            .createShader(Rect.fromCircle(center: c.translate(-r * 0.3, -r * 0.35), radius: r * 0.55)),
+    );
+    canvas.save();
+    canvas.translate(c.dx - r * 0.42, c.dy - r * 0.5);
+    canvas.rotate(-0.6);
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: r * 0.42, height: r * 0.22),
+      Paint()..color = Colors.white.withValues(alpha: 0.9),
+    );
+    canvas.restore();
+    canvas.drawCircle(c.translate(r * 0.45, r * 0.42), r * 0.06, Paint()..color = Colors.white.withValues(alpha: 0.5));
+    canvas.drawCircle(
+      c,
+      r - r * 0.02,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.04
+        ..color = Color.lerp(color, Colors.black, 0.35)!.withValues(alpha: 0.35),
+    );
   }
 
   @override

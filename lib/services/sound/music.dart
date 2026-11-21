@@ -115,6 +115,22 @@ Float32List synthBirdsong() {
   return normalize(out, peak: 0.22);
 }
 
+/// A soft cork "pop": a quick falling thump with a breath of air.
+Float32List synthPop() {
+  final r = math.Random(99);
+  final n = (sampleRate * 0.16).round();
+  final out = Float32List(n);
+  var phase = 0.0;
+  for (var i = 0; i < n; i++) {
+    final t = i / sampleRate;
+    final f = 520 * math.exp(-t * 28) + 140;
+    phase += 2 * math.pi * f / sampleRate;
+    final env = (t < 0.002 ? t / 0.002 : 1) * math.exp(-t * 38);
+    out[i] = env * (math.sin(phase) + 0.25 * (r.nextDouble() * 2 - 1) * math.exp(-t * 90));
+  }
+  return normalize(out, peak: 0.5);
+}
+
 /// Scales [out] in place to the given loudness ([rms]) without exceeding
 /// [peak], and returns it.
 Float32List normalize(Float32List out, {double? rms, double peak = 0.8}) {

@@ -42,6 +42,12 @@ class Sounds {
   static int get _chime0 => scale.length + _clinkFreqs.length;
   static const _chimes = 3;
   static int get _birds => _chime0 + _chimes;
+  static int get _pop => _birds + 1;
+
+  /// A cork pops into a finished tube.
+  static void pop() {
+    if (enabled) _oneShot(_pop, 0.55);
+  }
 
   static Future<void> init() async {
     try {
@@ -51,6 +57,7 @@ class Sounds {
         for (final f in _clinkFreqs) synthClink(f),
         for (var v = 0; v < _chimes; v++) synthChime(v),
         synthBirdsong(),
+        synthPop(),
       ]);
       _engine = e;
     } catch (_) {
