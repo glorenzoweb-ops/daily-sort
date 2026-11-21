@@ -23,6 +23,9 @@ const premiumPlans = [yearlyPlan, monthlyPlan];
 /// Past puzzles anyone can replay for free: the last few days.
 const freeArchiveDays = 3;
 
+/// Hints anyone gets on each daily puzzle. Unwind hints are always free.
+const freeHintsPerDay = 1;
+
 /// Whether puzzle [number] is locked in the archive on day [today].
 bool archiveLocked(int number, int today, PremiumService premium) =>
     number < today - freeArchiveDays && !premium.isUnlocked(PremiumFeature.archive);

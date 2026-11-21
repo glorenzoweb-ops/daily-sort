@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../services/friends.dart';
+import '../services/reactions.dart';
 import '../services/share.dart';
 import '../services/storage.dart';
 import 'palette.dart';
@@ -36,13 +37,13 @@ class _NameDialogState extends State<_NameDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: Colors.white,
+      backgroundColor: Palette.card,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       title: Text('Who\'s sorting?', textAlign: TextAlign.center, style: Palette.display(size: 24)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
+          Text(
             'Friends who open your link will see this name on their board.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
@@ -54,7 +55,7 @@ class _NameDialogState extends State<_NameDialog> {
             maxLength: 16,
             textCapitalization: TextCapitalization.words,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.ink),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Palette.ink),
             decoration: InputDecoration(
               hintText: 'Your first name',
               counterText: '',
@@ -70,13 +71,17 @@ class _NameDialogState extends State<_NameDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, ''),
-          child: const Text(
+          child: Text(
             'Skip',
             style: TextStyle(fontWeight: FontWeight.w800, color: Palette.inkSoft),
           ),
         ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Palette.ink, shape: const StadiumBorder()),
+          style: FilledButton.styleFrom(
+            backgroundColor: Palette.ink,
+            foregroundColor: Palette.onInk,
+            shape: const StadiumBorder(),
+          ),
           onPressed: () => Navigator.pop(context, _c.text),
           child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w900)),
         ),
@@ -111,7 +116,7 @@ class Avatar extends StatelessWidget {
       ),
       child: Text(
         name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-        style: Palette.display(size: size * 0.46, color: c == Palette.balls[1] ? Palette.ink : Colors.white),
+        style: Palette.display(size: size * 0.46, color: c == Palette.balls[1] ? Palette.navy : Colors.white),
       ),
     );
   }
@@ -121,7 +126,15 @@ class Avatar extends StatelessWidget {
 class BoardRow extends StatelessWidget {
   final int rank;
   final BoardEntry e;
-  const BoardRow({super.key, required this.rank, required this.e});
+
+  /// On your row: the reactions friends sent you for this day.
+  final List<Reaction> received;
+
+  /// On a friend's row: the reaction you sent (index into [reactionEmoji]),
+  /// and what to do when you pick one. No button when [onReact] is null.
+  final int? sent;
+  final ValueChanged<int>? onReact;
+  const BoardRow({super.key, required this.rank, required this.e, this.received = const [], this.sent, this.onReact});
 
   @override
   Widget build(BuildContext context) {
@@ -130,9 +143,9 @@ class BoardRow extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: e.isMe ? const Color(0xFFFFF3D6) : Colors.white,
+        color: e.isMe ? Palette.picked : Palette.card,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: e.isMe ? Palette.gold : const Color(0xFFEDE6D9), width: 1.5),
+        border: Border.all(color: e.isMe ? Palette.gold : Palette.line, width: 1.5),
       ),
       child: Row(
         children: [
@@ -141,7 +154,7 @@ class BoardRow extends StatelessWidget {
             child: Text(
               rank <= 3 ? medals[rank - 1] : '$rank',
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Palette.inkSoft),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Palette.inkSoft),
             ),
           ),
           const SizedBox(width: 6),
@@ -155,23 +168,31 @@ class BoardRow extends StatelessWidget {
                   e.isMe ? 'You' : e.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Palette.ink),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Palette.ink),
                 ),
                 Text(
                   [
                     e.attempts == 1 ? '1st try' : '${ordinal(e.attempts)} try',
                     if (e.streak >= 2) '🔥${e.streak}',
                   ].join('  ·  '),
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
                 ),
+                if (received.isNotEmpty)
+                  Text(
+                    received.map((r) => '${r.from} ${r.symbol}').join(', '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Palette.ink),
+                  ),
               ],
             ),
           ),
           Text('${e.moves}', style: Palette.display(size: 22)),
-          const Text(
+          Text(
             ' moves',
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Palette.inkSoft),
           ),
+          if (onReact != null) ...[const SizedBox(width: 8), _ReactButton(sent: sent, onReact: onReact!)],
         ],
       ),
     );
@@ -190,6 +211,11 @@ class FriendsSheet extends StatefulWidget {
   /// Shares your result (or an invite if you haven't solved yet).
   final Future<void> Function() onInvite;
 
+  final Reactions reactions;
+
+  /// Sends a friend a reaction to today's result.
+  final Future<void> Function(BoardEntry friend, int emoji) onReact;
+
   const FriendsSheet({
     super.key,
     required this.storage,
@@ -197,6 +223,8 @@ class FriendsSheet extends StatefulWidget {
     required this.today,
     required this.me,
     required this.onInvite,
+    required this.reactions,
+    required this.onReact,
   });
 
   @override
@@ -227,21 +255,33 @@ class _FriendsSheetState extends State<FriendsSheet> {
         Text(
           widget.me == null && today.isNotEmpty
               ? 'Solve today\'s puzzle to take your place.'
-              : 'Fewest moves wins. Ties go to the fewest tries.',
+              : 'Fewest moves wins. Tap 😊 to send a friend a reaction.',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
         ),
         const SizedBox(height: 14),
         if (rows.isEmpty)
           const _EmptyBoard()
         else
-          for (var i = 0; i < rows.length; i++) BoardRow(rank: i + 1, e: rows[i]),
+          for (var i = 0; i < rows.length; i++)
+            BoardRow(
+              rank: i + 1,
+              e: rows[i],
+              received: rows[i].isMe ? widget.reactions.forDay(widget.today) : const [],
+              sent: rows[i].isMe ? null : widget.reactions.sentTo(rows[i].name, widget.today),
+              onReact: rows[i].isMe
+                  ? null
+                  : (emoji) async {
+                      await widget.onReact(rows[i], emoji);
+                      if (mounted) setState(() {});
+                    },
+            ),
         if (waiting.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
             'Waiting on ${waiting.take(4).join(', ')}${waiting.length > 4 ? ' and ${waiting.length - 4} more' : ''}',
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Palette.inkSoft),
           ),
         ],
         const SizedBox(height: 18),
@@ -256,7 +296,7 @@ class _FriendsSheetState extends State<FriendsSheet> {
         const SizedBox(height: 16),
         Row(
           children: [
-            const Text(
+            Text(
               'Your name',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
             ),
@@ -266,7 +306,7 @@ class _FriendsSheetState extends State<FriendsSheet> {
                 controller: _name,
                 maxLength: 16,
                 textCapitalization: TextCapitalization.words,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
                 decoration: InputDecoration(
                   isDense: true,
                   counterText: '',
@@ -294,7 +334,7 @@ class _EmptyBoard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(color: Palette.background, borderRadius: BorderRadius.circular(20)),
-    child: const Column(
+    child: Column(
       children: [
         Text('👋', style: TextStyle(fontSize: 34)),
         SizedBox(height: 6),
@@ -337,7 +377,7 @@ class FriendsChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.fromLTRB(4, 4, 14, 4),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Palette.card,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(color: Palette.tubeStroke, width: 1.5),
             boxShadow: const [BoxShadow(color: Color(0x1A241A10), blurRadius: 8, offset: Offset(0, 3))],
@@ -361,7 +401,7 @@ class FriendsChip extends StatelessWidget {
                   text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.ink),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.ink),
                 ),
               ),
             ],
@@ -370,4 +410,41 @@ class FriendsChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Send a friend a reaction to their result: 👏 🔥 😮 😂.
+class _ReactButton extends StatelessWidget {
+  final int? sent;
+  final ValueChanged<int> onReact;
+  const _ReactButton({required this.sent, required this.onReact});
+
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<int>(
+    tooltip: 'React',
+    onSelected: onReact,
+    color: Palette.card,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    position: PopupMenuPosition.under,
+    itemBuilder: (_) => [
+      for (var i = 0; i < reactionEmoji.length; i++)
+        PopupMenuItem<int>(
+          value: i,
+          height: 44,
+          child: Text(reactionEmoji[i], style: const TextStyle(fontSize: 24)),
+        ),
+    ],
+    child: Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: sent == null ? Palette.panel : Palette.picked,
+        border: Border.all(color: sent == null ? Palette.line : Palette.gold, width: 1.5),
+      ),
+      child: sent == null
+          ? Icon(Icons.add_reaction_outlined, size: 19, color: Palette.inkSoft)
+          : Text(reactionEmoji[sent!], style: const TextStyle(fontSize: 18)),
+    ),
+  );
 }

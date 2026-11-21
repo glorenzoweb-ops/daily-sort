@@ -322,6 +322,8 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                   lookTube: _pending?.move.to ?? game.selected,
                   breathe: widget.breathe,
                   idle: _ticker.muted,
+                  hint: _pending == null ? game.hint : null,
+                  selected: game.selected,
                 ),
               ),
             ),
@@ -358,8 +360,14 @@ class _BoardPainter extends CustomPainter {
   /// Nothing is moving: a good moment to prepare one sprite we'll need later.
   final bool idle;
 
+  /// A hint to show (the tube to pick, then the tube to pour into).
+  final Move? hint;
+  final int? selected;
+
   _BoardPainter({
     this.idle = false,
+    this.hint,
+    this.selected,
     required this.sprites,
     required this.dpr,
     this.winPours = const [],
@@ -498,6 +506,7 @@ class _BoardPainter extends CustomPainter {
       canvas.restore();
     }
     if (p != null) _flying(canvas, p);
+    if (hint != null && !won) _hint(canvas, hint!);
     canvas.restore();
     _drawSparks(canvas);
     if (winPours.isNotEmpty) _winPainting(canvas, size);
@@ -676,6 +685,43 @@ class _BoardPainter extends CustomPainter {
       canvas.restore();
       canvas.restore();
     }
+  }
+
+  /// A gold ring on the tube to pour into, and a bouncing arrow over the
+  /// tube to tap next.
+  void _hint(Canvas canvas, Move m) {
+    final L = layout;
+    final pulse = 0.5 + 0.5 * math.sin(time * 5);
+    final ring = L.tubeRect(m.to).inflate(L.ball * 0.12 + pulse * 2);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(ring, Radius.circular(ring.width / 2)),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = Palette.gold.withValues(alpha: 0.55 + 0.45 * pulse),
+    );
+    final next = selected == m.from ? m.to : m.from;
+    final x = L.cx(next);
+    final tip = (selected == m.from ? L.tubeTop - L.ball * 0.25 : L.liftY - L.ball * 0.2) - pulse * L.ball * 0.3;
+    final s = L.ball * 0.42;
+    final arrow = Path()
+      ..moveTo(x, tip)
+      ..lineTo(x + s, tip - s)
+      ..lineTo(x + s * 0.38, tip - s)
+      ..lineTo(x + s * 0.38, tip - s * 1.9)
+      ..lineTo(x - s * 0.38, tip - s * 1.9)
+      ..lineTo(x - s * 0.38, tip - s)
+      ..lineTo(x - s, tip - s)
+      ..close();
+    canvas.drawPath(
+      arrow,
+      Paint()
+        ..color = Palette.navy.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeJoin = StrokeJoin.round,
+    );
+    canvas.drawPath(arrow, Paint()..color = Palette.gold);
   }
 
   /// 10-second breath: 4 s in, 6 s out (about 6 breaths a minute, the pace
@@ -1065,9 +1111,9 @@ class _BoardPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = s * 0.14
-        ..color = Palette.ink,
+        ..color = Palette.navy,
     );
-    canvas.drawRRect(body, Paint()..color = Palette.ink);
+    canvas.drawRRect(body, Paint()..color = Palette.navy);
     final tp = TextPainter(
       text: TextSpan(
         text: '$remaining',
@@ -1096,12 +1142,22 @@ class _BoardPainter extends CustomPainter {
     }
     sprites.draw(
       canvas,
-      sprites.get(
-        'ball:$colorIndex',
-        Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3),
-        (c) => _ball(c, Offset.zero, Palette.balls[colorIndex], r),
-        sharpness: 1.4,
-      ),
+      sprites.get('ball:$colorIndex:${Palette.colorblind}', Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3), (
+        c,
+      ) {
+        _ball(c, Offset.zero, Palette.balls[colorIndex], r);
+        // Colorblind mode: a shape under the face tells the colors apart.
+        if (Palette.colorblind) {
+          paintBallShape(
+            c,
+            Offset(0, r * 0.66),
+            r * 0.4,
+            Palette.shapes[colorIndex % Palette.shapes.length],
+            Colors.white,
+            Palette.navy.withValues(alpha: 0.6),
+          );
+        }
+      }, sharpness: 1.4),
       Offset.zero,
     );
     _face(canvas, r, mood, phase, lookX == null ? 0 : ((lookX - c.dx) / (r * 4)).clamp(-1.0, 1.0));

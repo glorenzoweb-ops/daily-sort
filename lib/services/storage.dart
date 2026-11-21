@@ -11,10 +11,17 @@ class DayRecord {
   bool solved;
   int? solvedMoves;
   List<int> solvedColors; // color of each move in the winning run (for share)
+  int? par; // saved with the solve, for the history calendar
 
-  DayRecord({List<Move>? moves, this.attempts = 1, this.solved = false, this.solvedMoves, List<int>? solvedColors})
-    : moves = moves ?? [],
-      solvedColors = solvedColors ?? [];
+  DayRecord({
+    List<Move>? moves,
+    this.attempts = 1,
+    this.solved = false,
+    this.solvedMoves,
+    List<int>? solvedColors,
+    this.par,
+  }) : moves = moves ?? [],
+       solvedColors = solvedColors ?? [];
 
   Map<String, dynamic> toJson() => {
     'moves': moves.map((m) => m.toJson()).toList(),
@@ -22,6 +29,7 @@ class DayRecord {
     'solved': solved,
     'solvedMoves': solvedMoves,
     'solvedColors': solvedColors,
+    'par': ?par,
   };
 
   static DayRecord fromJson(Map<String, dynamic> j) => DayRecord(
@@ -30,6 +38,7 @@ class DayRecord {
     solved: j['solved'] as bool? ?? false,
     solvedMoves: j['solvedMoves'] as int?,
     solvedColors: (j['solvedColors'] as List?)?.cast<int>() ?? [],
+    par: j['par'] as int?,
   );
 }
 
@@ -190,6 +199,31 @@ class Storage {
   /// Times this device tapped "Start free trial" before payments were live.
   int get premiumInterest => _prefs.getInt('premiumInterest') ?? 0;
   Future<void> addPremiumInterest() => _prefs.setInt('premiumInterest', premiumInterest + 1);
+
+  /// 'auto' (follow the phone), 'light' or 'dark'.
+  String get theme => _prefs.getString('theme') ?? 'auto';
+  Future<void> setTheme(String v) => _prefs.setString('theme', v);
+
+  bool get colorblind => _prefs.getBool('colorblind') ?? false;
+  Future<void> setColorblind(bool v) => _prefs.setBool('colorblind', v);
+
+  /// Hints used on daily puzzle [number] (the free one counts too).
+  int hintsUsed(int number) => _prefs.getInt('hints_$number') ?? 0;
+  Future<void> addHint(int number) async {
+    await _prefs.setInt('hints_$number', hintsUsed(number) + 1);
+    for (final k in _prefs.getKeys().where((k) => k.startsWith('hints_')).toList()) {
+      final n = int.tryParse(k.substring(6));
+      if (n != null && n < number - 7) await _prefs.remove(k);
+    }
+  }
+
+  /// Reactions friends sent to your results (JSON list).
+  String? get reactionsRaw => _prefs.getString('reactions');
+  Future<void> setReactionsRaw(String v) => _prefs.setString('reactions', v);
+
+  /// Reactions you sent, so the board shows them (JSON map "number:name" → emoji index).
+  String? get sentReactionsRaw => _prefs.getString('sentReactions');
+  Future<void> setSentReactionsRaw(String v) => _prefs.setString('sentReactions', v);
 
   bool get hapticsOn => _prefs.getBool('haptics') ?? true;
   Future<void> setHaptics(bool v) => _prefs.setBool('haptics', v);

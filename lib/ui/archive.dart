@@ -43,14 +43,14 @@ class ArchiveSheet extends StatelessWidget {
         Text(
           'Pictures colored: $colored of $today',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
         ),
         const SizedBox(height: 14),
         if (past.isEmpty)
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(color: Palette.background, borderRadius: BorderRadius.circular(20)),
-            child: const Text(
+            child: Text(
               'The archive starts tomorrow. Every day\'s puzzle and picture will wait for you here.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 15, height: 1.35, fontWeight: FontWeight.w700, color: Palette.ink),
@@ -106,10 +106,10 @@ class _Tile extends StatelessWidget {
         : (started ? 'In progress' : (locked ? 'Daily Sort+' : 'Not played'));
     return Squish(
       child: Material(
-        color: Colors.white,
+        color: Palette.card,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: BorderSide(color: solved ? Palette.gold : const Color(0xFFEDE6D9), width: 1.5),
+          side: BorderSide(color: solved ? Palette.gold : Palette.line, width: 1.5),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -133,11 +133,11 @@ class _Tile extends StatelessWidget {
                         ),
                       ),
                       if (locked)
-                        const Center(
+                        Center(
                           child: CircleAvatar(
                             radius: 17,
                             backgroundColor: Palette.ink,
-                            child: Icon(Icons.lock_rounded, size: 18, color: Colors.white),
+                            child: Icon(Icons.lock_rounded, size: 18, color: Palette.onInk),
                           ),
                         ),
                     ],
@@ -153,7 +153,7 @@ class _Tile extends StatelessWidget {
                         dayLabel(day),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
                       ),
                     ),
                   ],
@@ -184,7 +184,7 @@ class PlusBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Squish(
     child: Material(
-      color: const Color(0xFFFFF3D6),
+      color: Palette.picked,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
@@ -198,10 +198,10 @@ class PlusBanner extends StatelessWidget {
               Expanded(
                 child: Text(
                   text,
-                  style: const TextStyle(fontSize: 14, height: 1.3, fontWeight: FontWeight.w800, color: Palette.ink),
+                  style: TextStyle(fontSize: 14, height: 1.3, fontWeight: FontWeight.w800, color: Palette.ink),
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded, color: Palette.ink),
+              Icon(Icons.chevron_right_rounded, color: Palette.ink),
             ],
           ),
         ),
@@ -260,11 +260,11 @@ class _PaywallSheetState extends State<PaywallSheet> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Palette.ink),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Palette.ink),
                 ),
                 Text(
                   sub,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
                 ),
               ],
             ),
@@ -307,7 +307,7 @@ class _PaywallSheetState extends State<PaywallSheet> {
         ),
         const SizedBox(height: 10),
         Text('Daily Sort+', textAlign: TextAlign.center, style: Palette.display(size: 32)),
-        const Text(
+        Text(
           'Today\'s puzzle is always free. Plus keeps every day.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
@@ -315,8 +315,9 @@ class _PaywallSheetState extends State<PaywallSheet> {
         const SizedBox(height: 14),
         perk('🗓️', 'The whole archive', 'Every past puzzle, any time, at your pace'),
         perk('🖼️', 'Every picture', 'Color in the full gallery, one puzzle at a time'),
-        perk('💡', 'Coming next', 'Hints when you\'re stuck and a par-or-bust hard mode'),
-        perk('💛', 'Support a tiny studio', 'Keeps Daily Sort calm and free for everyone'),
+        perk('💡', 'Unlimited hints', 'One free hint a day for everyone, as many as you like with Plus'),
+        perk('📈', 'Coming next', 'A par-or-bust hard mode'),
+        perk('💛', 'Support a tiny studio', 'No ads, ever. Keeps Daily Sort calm and free for everyone'),
         const SizedBox(height: 14),
         Row(
           children: [
@@ -340,7 +341,7 @@ class _PaywallSheetState extends State<PaywallSheet> {
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: const Color(0xFF2EC4A0), width: 1.5),
                   ),
-                  child: const Text(
+                  child: Text(
                     'You\'re early! Daily Sort+ opens with the App Store and Google Play release. '
                     'Until then, the last few days of the archive are free for everyone.',
                     textAlign: TextAlign.center,
@@ -364,12 +365,12 @@ class _PaywallSheetState extends State<PaywallSheet> {
               ? 'Free for ${_plan.trialDays} days, then ${_plan.price}/${_plan.period}. Cancel anytime.'
               : '${_plan.price}/${_plan.period}. Cancel anytime.',
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
         ),
         if (widget.premium.canPurchase)
           TextButton(
             onPressed: widget.premium.restore,
-            child: const Text(
+            child: Text(
               'Restore purchases',
               style: TextStyle(fontWeight: FontWeight.w800, color: Palette.inkSoft),
             ),
@@ -394,21 +395,21 @@ class _PlanCard extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
           decoration: BoxDecoration(
-            color: selected ? const Color(0xFFFFF3D6) : Colors.white,
+            color: selected ? Palette.picked : Palette.card,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: selected ? Palette.gold : const Color(0xFFEDE6D9), width: selected ? 2.5 : 1.5),
+            border: Border.all(color: selected ? Palette.gold : Palette.line, width: selected ? 2.5 : 1.5),
           ),
           child: Column(
             children: [
               Text(
                 plan.label,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
               ),
               const SizedBox(height: 2),
               Text(plan.price, style: Palette.display(size: 24)),
               Text(
                 'per ${plan.period}',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
               ),
               const SizedBox(height: 6),
               Container(

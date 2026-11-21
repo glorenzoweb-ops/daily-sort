@@ -35,6 +35,7 @@ String buildShareText({
   required int attempts,
   required List<int> moveColors,
   int streak = 0,
+  int hints = 0,
   String? link,
 }) {
   final b = StringBuffer()
@@ -42,6 +43,7 @@ String buildShareText({
     ..write('$moves/${puzzle.moveLimit} moves · par ${puzzle.par}');
   b.write(' · ${attempts == 1 ? '1st try' : '${ordinal(attempts)} try'}');
   if (streak >= 2) b.write(' · 🔥$streak');
+  if (hints > 0) b.write(' · 💡$hints');
   b.writeln();
   for (var i = 0; i < moveColors.length; i++) {
     b.write(Palette.emoji[moveColors[i] % Palette.emoji.length]);
