@@ -12,14 +12,29 @@ const _ice = Color(0xFF5AB8F0);
 /// Streak lengths that get a full-screen celebration.
 const streakMilestones = {3, 7, 14, 30, 50, 100, 200, 365};
 
-Widget _flameIcon(double size, {bool lit = true}) => ShaderMask(
-  shaderCallback: (r) => LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: lit ? const [_flameTop, _flameBottom] : const [Color(0xFFD8CFC0), Color(0xFFC2B6A3)],
-  ).createShader(r),
-  child: Icon(Icons.local_fire_department_rounded, size: size, color: Colors.white),
-);
+/// The flame in two tones: a cheap stand-in for a gradient (a ShaderMask
+/// would cost an extra offscreen layer on every frame).
+Widget _flameIcon(double size, {bool lit = true}) {
+  const icon = Icons.local_fire_department_rounded;
+  final top = lit ? _flameTop : const Color(0xFFD8CFC0);
+  final bottom = lit ? _flameBottom : const Color(0xFFC2B6A3);
+  return SizedBox(
+    width: size,
+    height: size,
+    child: Stack(
+      children: [
+        Icon(icon, size: size, color: bottom),
+        ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: 0.48,
+            child: Icon(icon, size: size, color: top),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 /// The flame counter next to the moves pill. Lit once today's puzzle is
 /// solved; it bounces when the streak grows. Shows banked freezes as a small

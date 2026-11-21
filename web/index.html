@@ -64,6 +64,22 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    // Draw at most 2 pixels per CSS pixel. On 3x phone screens this looks the
+    // same but more than halves the work of every frame, which is what keeps
+    // pours smooth in the browser.
+    (function () {
+      var d = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio') ||
+        Object.getOwnPropertyDescriptor(Window.prototype, 'devicePixelRatio');
+      if (!d || !d.get) return;
+      try {
+        Object.defineProperty(window, 'devicePixelRatio', {
+          configurable: true,
+          get: function () { return Math.min(2, d.get.call(window) || 1); },
+        });
+      } catch (e) {}
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

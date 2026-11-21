@@ -8,6 +8,7 @@ import '../game/board.dart';
 import '../game/game_controller.dart';
 import '../services/feedback.dart';
 import '../services/sound.dart';
+import 'ambient_clock.dart';
 import 'palette.dart';
 import 'solve_art.dart';
 
@@ -88,14 +89,26 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker((elapsed) {
-      final t = elapsed.inMicroseconds / 1e6;
+    // Full frame rate only while something moves. When everything is still,
+    // the ticker sleeps (no frames at all) and the idle life (breathing,
+    // blinking) follows the shared 20 fps clock, on the same frames as the
+    // sky. On the web every frame redraws the whole screen, so this matters.
+    _ticker = createTicker((_) {
+      final t = _now;
       _sparks.removeWhere((s) => t - s.born > 1.3);
-      // When nothing is moving, the idle life (breathing, blinking) only
-      // needs ~24 frames a second: saves a lot of battery.
-      if (!_busy(t) && t - _time.value < 1 / 24) return;
-      _time.value = t;
+      if (_busy(t)) {
+        _time.value = t;
+      } else {
+        _ticker.muted = true;
+        _time.value = t;
+      }
     })..start();
+    AmbientClock.instance.addListener(_onAmbient);
+    for (final c in [_lift, _pour, _shake, _glow, _win]) {
+      c.addStatusListener((s) {
+        if (s == AnimationStatus.forward || s == AnimationStatus.reverse) _wake();
+      });
+    }
     _pour.addStatusListener((s) {
       if (s == AnimationStatus.completed) _finishPour();
     });
@@ -114,6 +127,16 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       widget.game.addListener(_onGame);
       _reportCalm();
     }
+  }
+
+  final Stopwatch _clock = Stopwatch()..start();
+  double get _now => _clock.elapsedMicroseconds / 1e6;
+
+  /// Back to full frame rate (a pour, a landing, a burst…).
+  void _wake() => _ticker.muted = false;
+
+  void _onAmbient() {
+    if (_ticker.muted) _time.value = _now;
   }
 
   bool _busy(double t) {
@@ -137,6 +160,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       _lift.reverse();
     }
     _reportCalm();
+    _wake();
     setState(() {});
   }
 
@@ -158,6 +182,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       c.dispose();
     }
     _ticker.dispose();
+    AmbientClock.instance.removeListener(_onAmbient);
     _time.dispose();
     _sprites.dispose();
     super.dispose();
@@ -169,7 +194,8 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     _pending = null;
     Haptics.land();
     Sounds.clink();
-    _landAt[p.move.to] = _time.value;
+    _landAt[p.move.to] = _now;
+    _wake();
     if (p.completedTube) {
       Haptics.tubeComplete();
       Sounds.tubeComplete(p.color);
@@ -204,7 +230,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
         _Spark(
           origin,
           Offset(math.cos(a), math.sin(a)) * v,
-          _time.value,
+          _now,
           i % 4 == 0 ? Palette.gold : Palette.balls[color],
           L.ball * (0.08 + _rnd.nextDouble() * 0.1),
           _rnd.nextBool(),
@@ -212,7 +238,8 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
         ),
       );
     }
-    _shakeAt = _time.value;
+    _shakeAt = _now;
+    _wake();
   }
 
   void _onTap(Offset pos) {
@@ -294,6 +321,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                   shakeAt: _shakeAt,
                   lookTube: _pending?.move.to ?? game.selected,
                   breathe: widget.breathe,
+                  idle: _ticker.muted,
                 ),
               ),
             ),
@@ -327,7 +355,11 @@ class _BoardPainter extends CustomPainter {
   final _Sprites sprites;
   final double dpr;
 
+  /// Nothing is moving: a good moment to prepare one sprite we'll need later.
+  final bool idle;
+
   _BoardPainter({
+    this.idle = false,
     required this.sprites,
     required this.dpr,
     this.winPours = const [],
@@ -469,7 +501,54 @@ class _BoardPainter extends CustomPainter {
     canvas.restore();
     _drawSparks(canvas);
     if (winPours.isNotEmpty) _winPainting(canvas, size);
+    if (idle) _prepareNext();
   }
+
+  /// Builds, one per idle frame, the images a completed tube and the win will
+  /// need (colored tube glass, corks, glows). Making them on the spot means a
+  /// round trip to the graphics card right at the big moment, which shows up
+  /// as a hitch on phones.
+  void _prepareNext() {
+    final L = layout;
+    final r0 = L.tubeRect(0);
+    final w = r0.width;
+    final colors = <int>{for (final t in board.tubes) ...t};
+    final picky = board.rules.pickyTube == null ? null : Palette.balls[board.rules.pickyColor];
+    final jobs = <(String, Rect, void Function(Canvas))>[
+      for (final c in colors) ...[
+        ('back:${Palette.balls[c].toARGB32()}:null', r0.inflate(2), (cv) => _tubeBack(cv, r0, Palette.balls[c], null)),
+        (
+          'cork:${Palette.balls[c].toARGB32()}',
+          Rect.fromLTRB(r0.left - w * 0.1, r0.top - w * 0.46 * 0.95 - 3, r0.right + w * 0.1, r0.top + w * 0.46 * 0.3),
+          (cv) => _cork(cv, r0, Palette.balls[c], c),
+        ),
+      ],
+      if (picky != null)
+        ('back:${picky.toARGB32()}:${picky.toARGB32()}', r0.inflate(2), (cv) => _tubeBack(cv, r0, picky, picky)),
+      ('glow', r0.inflate(40), _glowSprite),
+      ('halo', Rect.fromCircle(center: Offset.zero, radius: 100), _haloSprite),
+    ];
+    for (final (key, bounds, draw) in jobs) {
+      if (sprites.has(key)) continue;
+      sprites.get(key, bounds, draw);
+      return; // one per frame
+    }
+  }
+
+  void _glowSprite(Canvas c) => c.drawRRect(
+    _tubeShape(layout.tubeRect(0)).inflate(2),
+    Paint()
+      ..color = Colors.white
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12),
+  );
+
+  static void _haloSprite(Canvas c) => c.drawCircle(
+    Offset.zero,
+    62,
+    Paint()
+      ..color = Palette.gold
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16),
+  );
 
   /// A wooden shelf the tubes stand on, with a soft shadow under each tube.
   void _shelf(Canvas canvas) {
@@ -566,17 +645,7 @@ class _BoardPainter extends CustomPainter {
       }
     }
     // The disc.
-    final halo = sprites.get(
-      'halo',
-      Rect.fromCircle(center: Offset.zero, radius: 100),
-      (c) => c.drawCircle(
-        Offset.zero,
-        62,
-        Paint()
-          ..color = Palette.gold
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16),
-      ),
-    );
+    final halo = sprites.get('halo', Rect.fromCircle(center: Offset.zero, radius: 100), _haloSprite);
     canvas.drawImageRect(
       halo.image,
       Rect.fromLTWH(0, 0, halo.image.width.toDouble(), halo.image.height.toDouble()),
@@ -752,16 +821,7 @@ class _BoardPainter extends CustomPainter {
   /// Soft colored glow behind a tube, from one pre-blurred image.
   void _glowAround(Canvas canvas, Rect r, Color color, double glow) {
     final r0 = layout.tubeRect(0);
-    final sprite = sprites.get(
-      'glow',
-      r0.inflate(40),
-      (c) => c.drawRRect(
-        _tubeShape(r0).inflate(2),
-        Paint()
-          ..color = Colors.white
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12),
-      ),
-    );
+    final sprite = sprites.get('glow', r0.inflate(40), _glowSprite);
     canvas.drawImageRect(
       sprite.image,
       Rect.fromLTWH(0, 0, sprite.image.width.toDouble(), sprite.image.height.toDouble()),
@@ -1238,6 +1298,8 @@ class _Sprites {
     _size = size;
     _dpr = dpr;
   }
+
+  bool has(String key) => _cache.containsKey(key);
 
   _Sprite get(String key, Rect bounds, void Function(Canvas) draw, {double sharpness = 1}) {
     final hit = _cache[key];
