@@ -1,7 +1,9 @@
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../game/daily.dart';
+import 'storage.dart';
 import '../ui/palette.dart';
 
 /// Public URL of the web build. Change after you pick a custom domain.
@@ -37,7 +39,19 @@ String buildShareText({
   int streak = 0,
   int hints = 0,
   String? link,
+  bool plain = false,
 }) {
+  if (plain) {
+    return buildPlainShareText(
+      puzzle: puzzle,
+      moves: moves,
+      stars: stars,
+      attempts: attempts,
+      streak: streak,
+      hints: hints,
+      link: link,
+    );
+  }
   final b = StringBuffer()
     ..writeln('Daily Sort #${puzzle.number} ${'⭐' * stars}${'☆' * (3 - stars)}')
     ..write('$moves/${puzzle.moveLimit} moves · par ${puzzle.par}');
@@ -54,6 +68,39 @@ String buildShareText({
     ..write(link == null ? shareUrl : 'Can you beat me? $link');
   return b.toString();
 }
+
+/// The same result in words, with no emoji: screen readers read emoji
+/// squares one by one ("red square, blue square…").
+///
+/// Daily Sort #1: 3 of 3 stars.
+/// Solved in 10 moves, par 10, first try.
+String buildPlainShareText({
+  required DailyPuzzle puzzle,
+  required int moves,
+  required int stars,
+  required int attempts,
+  int streak = 0,
+  int hints = 0,
+  String? link,
+}) {
+  final parts = [
+    'Solved in $moves moves',
+    'par ${puzzle.par}',
+    attempts == 1 ? 'first try' : '${ordinal(attempts)} try',
+    if (streak >= 2) '$streak-day streak',
+    if (hints > 0) hints == 1 ? '1 hint' : '$hints hints',
+  ];
+  return [
+    'Daily Sort #${puzzle.number}: $stars of 3 stars.',
+    '${parts.join(', ')}.',
+    link == null ? shareUrl : 'Can you beat me? $link',
+  ].join('\n');
+}
+
+/// Whether to share in words: the player's choice, or on while a screen
+/// reader runs until they pick.
+bool plainShareOn(BuildContext context, Storage storage) =>
+    storage.plainShare ?? MediaQuery.maybeAccessibleNavigationOf(context) ?? false;
 
 /// The link that puts your result on a friend's board when they open it.
 String resultLink(String encoded) => '$shareUrl?r=$encoded';

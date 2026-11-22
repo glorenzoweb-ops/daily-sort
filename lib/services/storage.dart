@@ -57,6 +57,11 @@ class Stats {
   int freezes;
   int freezeProgress;
   static const maxFreezes = 2;
+
+  /// The phone's time zone (minutes from UTC) when the streak last moved.
+  /// A trip that changes it can skip a calendar day, so one missed day after
+  /// a time zone change doesn't break the streak.
+  int? tzMinutes;
   static const unwindPerFreeze = 5;
 
   Stats({
@@ -67,6 +72,7 @@ class Stats {
     this.lastSolvedNumber = 0,
     this.freezes = 0,
     this.freezeProgress = 0,
+    this.tzMinutes,
     Map<int, int>? stars,
   }) : stars = stars ?? {1: 0, 2: 0, 3: 0};
 
@@ -86,6 +92,29 @@ class Stats {
     freezes -= missed;
     lastSolvedNumber = today - 1;
     return missed;
+  }
+
+  /// Travel grace: one missed day right after the time zone changed is
+  /// forgiven, without spending a freeze. Returns true when it kicked in.
+  bool applyTravelGrace(int today, int tzNow) {
+    final missed = today - 1 - lastSolvedNumber;
+    if (streak == 0 || lastSolvedNumber == 0 || missed != 1) return false;
+    if (tzMinutes == null || tzMinutes == tzNow) return false;
+    lastSolvedNumber = today - 1;
+    tzMinutes = tzNow;
+    return true;
+  }
+
+  /// Counts a solved daily toward the streak. Flying west can bring back a
+  /// puzzle number older than the last solve: that keeps the streak as is.
+  void addDailySolve(int number, int tzNow) {
+    played++;
+    solved++;
+    tzMinutes = tzNow;
+    if (number <= lastSolvedNumber) return;
+    streak = lastSolvedNumber == number - 1 ? streak + 1 : 1;
+    if (streak > maxStreak) maxStreak = streak;
+    lastSolvedNumber = number;
   }
 
   /// Counts an Unwind solve toward the next freeze. Returns true when it
@@ -110,6 +139,7 @@ class Stats {
     'lastSolvedNumber': lastSolvedNumber,
     'freezes': freezes,
     'freezeProgress': freezeProgress,
+    'tz': ?tzMinutes,
     'stars': stars.map((k, v) => MapEntry('$k', v)),
   };
 
@@ -121,6 +151,7 @@ class Stats {
     lastSolvedNumber: j['lastSolvedNumber'] as int? ?? 0,
     freezes: j['freezes'] as int? ?? 0,
     freezeProgress: j['freezeProgress'] as int? ?? 0,
+    tzMinutes: j['tz'] as int?,
     stars: ((j['stars'] as Map?) ?? {}).map((k, v) => MapEntry(int.parse(k as String), v as int)),
   );
 }
@@ -227,4 +258,55 @@ class Storage {
 
   bool get hapticsOn => _prefs.getBool('haptics') ?? true;
   Future<void> setHaptics(bool v) => _prefs.setBool('haptics', v);
+
+  /// Volumes, 0..1, for pour sounds, the soundscape and the music.
+  double volume(String channel) {
+    final v = _prefs.get('volume_$channel');
+    return v is num ? v.toDouble().clamp(0.0, 1.0) : 1.0;
+  }
+
+  Future<void> setVolume(String channel, double v) => _prefs.setDouble('volume_$channel', v);
+
+  /// Reduce motion. Null until the player picks: then the phone's setting
+  /// decides.
+  bool? get reduceMotion => _prefs.getBool('reduceMotion');
+  Future<void> setReduceMotion(bool v) => _prefs.setBool('reduceMotion', v);
+
+  /// Share results as words instead of emoji squares. Null until the player
+  /// picks: then it is on while a screen reader runs.
+  bool? get plainShare => _prefs.getBool('plainShare');
+  Future<void> setPlainShare(bool v) => _prefs.setBool('plainShare', v);
+
+  /// Everything saved on this device except the puzzle cache, for a backup.
+  Map<String, Object> exportAll() => {
+    for (final k in _prefs.getKeys())
+      if (!k.startsWith('puzzle_') && _prefs.get(k) != null) k: _prefs.get(k)!,
+  };
+
+  /// Replaces everything saved on this device (but the puzzle cache) with
+  /// [data], from a backup.
+  Future<void> replaceAll(Map<String, Object?> data) async {
+    for (final k in _prefs.getKeys().where((k) => !k.startsWith('puzzle_')).toList()) {
+      await _prefs.remove(k);
+    }
+    for (final e in data.entries) {
+      final v = e.value;
+      if (e.key.startsWith('puzzle_')) continue;
+      switch (v) {
+        case bool():
+          await _prefs.setBool(e.key, v);
+        // On the web 1.0 is also an int: volumes are always doubles.
+        case num() when e.key.startsWith('volume_'):
+          await _prefs.setDouble(e.key, v.toDouble());
+        case int():
+          await _prefs.setInt(e.key, v);
+        case double():
+          await _prefs.setDouble(e.key, v);
+        case String():
+          await _prefs.setString(e.key, v);
+        case List():
+          await _prefs.setStringList(e.key, v.map((x) => '$x').toList());
+      }
+    }
+  }
 }

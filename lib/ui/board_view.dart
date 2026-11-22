@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/semantics.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../game/board.dart';
@@ -9,6 +10,7 @@ import '../game/game_controller.dart';
 import '../services/feedback.dart';
 import '../services/sound.dart';
 import 'ambient_clock.dart';
+import 'motion.dart';
 import 'palette.dart';
 import 'solve_art.dart';
 
@@ -136,6 +138,9 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   void _wake() => _ticker.muted = false;
 
   void _onAmbient() {
+    // Reduce motion: balls stop breathing, so idle frames aren't needed
+    // (the Unwind breathing glow keeps going).
+    if (Motion.reduced && !widget.breathe) return;
     if (_ticker.muted) _time.value = _now;
   }
 
@@ -221,7 +226,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   /// Confetti puff out of a tube that just completed, plus a tiny shake.
   void _burst(int tube, int color) {
     final L = _layout;
-    if (L == null) return;
+    if (L == null || Motion.reduced) return;
     final origin = Offset(L.cx(tube), L.tubeTop);
     for (var i = 0; i < 28; i++) {
       final a = -math.pi / 2 + (_rnd.nextDouble() - 0.5) * 2.2;
@@ -258,6 +263,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       _finishPour();
     }
     final out = widget.game.tap(tube);
+    _announce(out);
     switch (out) {
       case Selected(:final tube):
         Haptics.select();
@@ -284,6 +290,56 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     }
   }
 
+  /// Tells a screen reader what a tap did.
+  void _announce(TapOutcome out) {
+    if (!(MediaQuery.maybeAccessibleNavigationOf(context) ?? false)) return;
+    final b = widget.game.board;
+    final String msg;
+    switch (out) {
+      case Selected(:final tube):
+        msg = 'Picked up ${ballName(b.tubes[tube].last)} from tube ${tube + 1}';
+      case Deselected():
+        msg = 'Put it back';
+      case Poured():
+        final name = ballName(out.color);
+        msg = [
+          'Poured ${out.count == 1 ? name : '${out.count} $name'} into tube ${out.move.to + 1}',
+          if (out.completedTube) 'Tube done',
+          if (out.won) 'Solved!',
+          if (!out.won && widget.game.status == GameStatus.outOfMoves) 'Out of moves',
+        ].join('. ');
+      case Invalid():
+        msg = "Can't pour there";
+      case Ignored():
+        return;
+    }
+    SemanticsService.sendAnnouncement(View.of(context), msg, Directionality.of(context));
+  }
+
+  /// What a screen reader says for tube [i].
+  String _describe(int i) {
+    final g = widget.game;
+    final b = g.board;
+    final t = b.tubes[i];
+    final parts = <String>['Tube ${i + 1} of ${b.tubeCount}'];
+    parts.add(t.isEmpty ? 'empty' : 'bottom to top: ${t.map(ballName).join(', ')}');
+    if (b.isTubeComplete(i)) {
+      parts.add('done');
+    } else if (t.isNotEmpty) {
+      final free = b.capacity - t.length;
+      parts.add(free == 0 ? 'full' : '$free ${free == 1 ? 'space' : 'spaces'} free');
+    }
+    if (b.isLocked(i)) {
+      parts.add('locked, opens after ${b.lockRemaining} more ${b.lockRemaining == 1 ? 'move' : 'moves'}');
+    }
+    if (b.isPicky(i)) parts.add('only takes ${ballName(b.rules.pickyColor)}');
+    if (g.selected == i) parts.add('picked up');
+    final h = g.hint;
+    if (h != null && h.from == i) parts.add('hint: pick up from here');
+    if (h != null && h.to == i) parts.add('hint: pour here');
+    return parts.join('. ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final game = widget.game;
@@ -294,38 +350,61 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
         return RepaintBoundary(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            excludeFromSemantics: true,
             onTapDown: (d) => _onTap(d.localPosition),
-            child: AnimatedBuilder(
-              animation: Listenable.merge([_lift, _pour, _shake, _glow, _win, _time]),
-              builder: (context, _) => CustomPaint(
-                size: c.biggest,
-                painter: _BoardPainter(
-                  sprites: _sprites,
-                  dpr: MediaQuery.devicePixelRatioOf(context),
-                  layout: layout,
-                  board: _pending?.before ?? game.board,
-                  pending: _pending,
-                  pourT: _pour.value,
-                  liftTube: _liftTube,
-                  liftT: Curves.easeOutBack.transform(_lift.value.clamp(0.0, 1.0)),
-                  shakeTube: _shakeTube,
-                  shakeT: _shake.value,
-                  glowTube: _glowTube,
-                  glowT: _glow.value,
-                  winT: _win.isAnimating || _win.isCompleted ? _win.value : (game.status == GameStatus.won ? 1.0 : 0.0),
-                  winPours: _win.isAnimating ? _winPours : const [],
-                  won: game.status == GameStatus.won && _pending == null,
-                  time: _time.value,
-                  landAt: _landAt,
-                  sparks: _sparks,
-                  shakeAt: _shakeAt,
-                  lookTube: _pending?.move.to ?? game.selected,
-                  breathe: widget.breathe,
-                  idle: _ticker.muted,
-                  hint: _pending == null ? game.hint : null,
-                  selected: game.selected,
+            child: Stack(
+              children: [
+                // For screen readers: one button per tube, over the drawing.
+                for (var i = 0; i < game.board.tubeCount; i++)
+                  Positioned.fromRect(
+                    rect: layout.tubeRect(i),
+                    child: Semantics(
+                      button: true,
+                      selected: game.selected == i,
+                      label: _describe(i),
+                      onTap: () => _onTap(layout.tubeRect(i).center),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ExcludeSemantics(
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([_lift, _pour, _shake, _glow, _win, _time]),
+                    builder: (context, _) => CustomPaint(
+                      size: c.biggest,
+                      painter: _BoardPainter(
+                        sprites: _sprites,
+                        dpr: MediaQuery.devicePixelRatioOf(context),
+                        layout: layout,
+                        board: _pending?.before ?? game.board,
+                        pending: _pending,
+                        pourT: _pour.value,
+                        liftTube: _liftTube,
+                        liftT: (Motion.reduced ? Curves.easeOut : Curves.easeOutBack).transform(
+                          _lift.value.clamp(0.0, 1.0),
+                        ),
+                        shakeTube: _shakeTube,
+                        shakeT: _shake.value,
+                        glowTube: _glowTube,
+                        glowT: _glow.value,
+                        winT: _win.isAnimating || _win.isCompleted
+                            ? _win.value
+                            : (game.status == GameStatus.won ? 1.0 : 0.0),
+                        winPours: _win.isAnimating ? _winPours : const [],
+                        won: game.status == GameStatus.won && _pending == null,
+                        time: _time.value,
+                        landAt: _landAt,
+                        sparks: _sparks,
+                        shakeAt: _shakeAt,
+                        lookTube: _pending?.move.to ?? game.selected,
+                        breathe: widget.breathe,
+                        idle: _ticker.muted,
+                        hint: _pending == null ? game.hint : null,
+                        selected: game.selected,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         );
@@ -400,8 +479,9 @@ class _BoardPainter extends CustomPainter {
     sprites.prepare(L.size, dpr);
     // Tiny screen shake right after a tube completes.
     final sd = time - shakeAt;
+    final still = Motion.reduced;
     canvas.save();
-    if (sd >= 0 && sd < 0.3) {
+    if (!still && sd >= 0 && sd < 0.3) {
       final k = (1 - sd / 0.3) * L.ball * 0.06;
       canvas.translate(math.sin(sd * 70) * k, math.cos(sd * 53) * k);
     }
@@ -411,10 +491,10 @@ class _BoardPainter extends CustomPainter {
     final r0 = L.tubeRect(0);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
-      if (i == shakeTube && shakeT > 0 && shakeT < 1) {
+      if (!still && i == shakeTube && shakeT > 0 && shakeT < 1) {
         dx = math.sin(shakeT * math.pi * 6) * 7 * (1 - shakeT);
       }
-      if (won && winT > 0) {
+      if (!still && won && winT > 0) {
         final t = _seg(winT, i * 0.03, i * 0.03 + 0.15);
         dy = -math.sin(t * math.pi) * L.ball * 0.55;
       }
@@ -422,7 +502,7 @@ class _BoardPainter extends CustomPainter {
       canvas.translate(dx, dy);
 
       // Jelly: the tube and its balls wobble for a moment after a landing.
-      final wob = _wobble(i);
+      final wob = still ? 0.0 : _wobble(i);
       final ri = L.tubeRect(i);
       final shift = Offset(ri.left - r0.left, 0);
       canvas.translate(ri.center.dx, ri.bottom);
@@ -432,7 +512,7 @@ class _BoardPainter extends CustomPainter {
       final complete = board.isTubeComplete(i) && p == null;
       var glow = 0.0;
       if (i == glowTube && glowT > 0 && glowT < 1) glow = math.sin(glowT * math.pi);
-      if (won && complete) glow = math.max(glow, 0.55 + 0.25 * math.sin(winT * math.pi * 4 + i));
+      if (won && complete) glow = math.max(glow, still ? 0.6 : 0.55 + 0.25 * math.sin(winT * math.pi * 4 + i));
       final doneColor = complete ? Palette.balls[board.tubes[i].first] : null;
       final pickyColor = board.isPicky(i) ? Palette.balls[board.rules.pickyColor] : null;
       if (glow > 0) _glowAround(canvas, ri, doneColor ?? Palette.gold, glow);
@@ -489,7 +569,7 @@ class _BoardPainter extends CustomPainter {
         var drop = 1.0;
         if (i == glowTube && glowT > 0 && glowT < 1) drop = _seg(glowT, 0.0, 0.42);
         if (drop > 0) {
-          final fall = (1 - Curves.bounceOut.transform(drop)) * w * 1.8;
+          final fall = (1 - (still ? Curves.easeOut : Curves.bounceOut).transform(drop)) * w * 1.8;
           final h = w * 0.46;
           sprites.draw(
             canvas,
@@ -1129,14 +1209,14 @@ class _BoardPainter extends CustomPainter {
   void _buddy(Canvas canvas, Offset c, int colorIndex, double r, Mood mood, int seed, double? lookX, double jelly) {
     final phase = seed * 1.7;
     // Breathing (idle life) plus jelly wobble, anchored at the ball's bottom.
-    final breath = 0.025 * math.sin(time * 2.4 + phase);
+    final breath = Motion.reduced ? 0.0 : 0.025 * math.sin(time * 2.4 + phase);
     final sx = 1 - breath * 0.6 + 0.12 * jelly;
     final sy = 1 + breath - 0.12 * jelly;
     canvas.save();
     canvas.translate(c.dx, c.dy + r);
     canvas.scale(sx, sy);
     canvas.translate(0, -r);
-    if (mood == Mood.cheer) {
+    if (mood == Mood.cheer && !Motion.reduced) {
       // Little happy hop, each ball on its own beat.
       canvas.translate(0, -r * 0.08 * math.max(0, math.sin(time * 6 + phase)));
     }

@@ -1,3 +1,4 @@
+import 'package:daily_sort/game/daily.dart';
 import 'package:daily_sort/main.dart';
 import 'package:daily_sort/services/premium.dart';
 import 'package:daily_sort/services/storage.dart';
@@ -27,7 +28,7 @@ void main() {
     expect(find.text('DAILY SORT'), findsOneWidget);
     expect(find.text('MOVES  '), findsOneWidget);
     // Today's puzzle is now saved on the device.
-    expect(storage.cachedPuzzle(1) ?? storage.cachedPuzzle(2), isNotNull);
+    expect(storage.cachedPuzzle(puzzleNumberFor(DateTime.now())), isNotNull);
 
     await tester.tap(find.text('Unwind').first);
     await settle(tester);

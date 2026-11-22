@@ -27,6 +27,27 @@ class Sounds {
   static const _ambienceVolume = 0.55;
   static const _musicVolume = 0.5;
 
+  /// The player's volume sliders, 0..1: pour sounds (notes, clinks, corks,
+  /// chimes), the soundscape and the music.
+  static double effectsLevel = 1, ambienceLevel = 1, musicLevel = 1;
+
+  static void setEffectsLevel(double v) {
+    effectsLevel = v.clamp(0.0, 1.0);
+    enabled = effectsLevel > 0;
+  }
+
+  static void setAmbienceLevel(double v) {
+    ambienceLevel = v.clamp(0.0, 1.0);
+    _applyCalm(seconds: 0.3);
+  }
+
+  static void setMusicLevel(double v) {
+    musicLevel = v.clamp(0.0, 1.0);
+    try {
+      if (_musicPlaying) _engine?.setLoopVolume('music', _musicVolume * musicLevel, seconds: 0.3);
+    } catch (_) {}
+  }
+
   /// Endless calm music: a slow pad plus a kalimba that wanders over the same
   /// notes as the pours, never repeating the same way twice.
   static bool music = false;
@@ -47,7 +68,7 @@ class Sounds {
 
   /// A cork pops into a finished tube.
   static void pop() {
-    if (enabled) _oneShot(_pop, 0.55);
+    if (enabled) _oneShot(_pop, 0.55 * effectsLevel);
   }
 
   /// Builds every sound without ever freezing the screen: the pour notes
@@ -91,7 +112,7 @@ class Sounds {
   static void note(int index, {double volume = 0.8}) {
     if (!enabled) return;
     try {
-      _engine?.play(index, volume);
+      _engine?.play(index, volume * effectsLevel);
     } catch (_) {}
   }
 
@@ -100,13 +121,13 @@ class Sounds {
   static void tubeComplete(int color) {
     note(noteFor(color, 0) + 5 > 9 ? 9 : noteFor(color, 0) + 5, volume: 0.6);
     // A wind chime answers when a soundscape or music is on.
-    if (ambience != Ambience.off || music) _oneShot(_chime0 + _rnd.nextInt(_chimes), 0.5);
+    if (ambience != Ambience.off || music) _oneShot(_chime0 + _rnd.nextInt(_chimes), 0.5 * effectsLevel);
   }
 
   /// The solve: the storm clears and the birds come out.
   static void solved() {
     if (ambience == Ambience.off && !music) return;
-    _oneShot(_birds, 0.6);
+    _oneShot(_birds, 0.6 * ambienceLevel);
     _calm = 1;
     _applyCalm(seconds: 4);
   }
@@ -122,7 +143,7 @@ class Sounds {
 
   static void _applyCalm({required double seconds}) {
     try {
-      _engine?.setLoopVolume('ambience', _ambienceVolume * (1 - 0.6 * _calm), seconds: seconds);
+      _engine?.setLoopVolume('ambience', _ambienceVolume * ambienceLevel * (1 - 0.6 * _calm), seconds: seconds);
     } catch (_) {}
   }
 
@@ -165,7 +186,7 @@ class Sounds {
       _musicPlaying = true;
       _preparePad().then((pad) {
         if (!music || !_musicPlaying) return;
-        e.playLoop('music', pad, padRate, _musicVolume);
+        e.playLoop('music', pad, padRate, _musicVolume * musicLevel);
       });
       // The kalimba can start right away; the pad fades in when it's ready.
       _scheduleMelody(const Duration(seconds: 2));
@@ -181,9 +202,9 @@ class Sounds {
       if (_rnd.nextDouble() < 0.82) {
         final step = const [-2, -1, -1, 1, 1, 2][_rnd.nextInt(6)];
         _melodyNote = (_melodyNote + step).clamp(0, 7);
-        _oneShot(_melodyNote, 0.14 + _rnd.nextDouble() * 0.1);
+        _oneShot(_melodyNote, (0.14 + _rnd.nextDouble() * 0.1) * musicLevel);
         // Now and then a soft fifth above, like a second hand.
-        if (_rnd.nextDouble() < 0.15) _oneShot((_melodyNote + 2).clamp(0, 9), 0.08);
+        if (_rnd.nextDouble() < 0.15) _oneShot((_melodyNote + 2).clamp(0, 9), 0.08 * musicLevel);
       }
       final ms = 1400 + _rnd.nextInt(2200);
       _scheduleMelody(Duration(milliseconds: ms));
@@ -203,7 +224,7 @@ class Sounds {
       _ambiencePlaying = true;
       _prepareAmbience(a).then((samples) {
         if (samples == null || ambience != a) return;
-        e.playLoop('ambience', samples, ambienceRate, _ambienceVolume * (1 - 0.6 * _calm));
+        e.playLoop('ambience', samples, ambienceRate, _ambienceVolume * ambienceLevel * (1 - 0.6 * _calm));
       });
     } catch (_) {}
   }
