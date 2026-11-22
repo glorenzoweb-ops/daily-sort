@@ -106,6 +106,10 @@ class HowToSheet extends StatelessWidget {
         row('🎨', 'You can only pour onto the same color, or into an empty tube.'),
         row('🧪', 'Sort every color into its own tube before you run out of moves.'),
         row('⭐', 'Par is the fewest moves possible. Hit par for three stars.'),
+        row(
+          '✅',
+          'Every puzzle is proven solvable. A solver finds the best solution before the puzzle reaches you, so par is always possible.',
+        ),
         row('🌍', 'Everyone in the world gets the same puzzle. A new one drops at midnight.'),
         row('🎯', 'Some days add a twist: a picky tube, a locked tube or tall tubes.'),
         row('🎵', 'Every pour plays a note. Your solve becomes a song and a painting to share.'),
@@ -200,6 +204,7 @@ class _ResultSheetState extends State<ResultSheet> {
       moveColors: g.moveColors,
       streak: streak,
       hints: g.puzzle.isPractice ? 0 : widget.storage.hintsUsed(g.puzzle.number),
+      plain: plainShareOn(context, widget.storage),
       link: g.puzzle.isPractice
           ? null
           : resultLink(

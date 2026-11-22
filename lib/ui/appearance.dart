@@ -3,22 +3,48 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:material_ui/material_ui.dart';
 
 import '../services/storage.dart';
+import 'motion.dart';
 import 'palette.dart';
 
-/// Light or dark, and colorblind mode. Saved on the device and applied to
-/// [Palette], which every screen reads.
+/// Light or dark, colorblind mode and reduce motion. Saved on the device and
+/// applied to [Palette] and [Motion], which every screen reads.
 class Appearance extends ChangeNotifier {
   final Storage storage;
   ThemeChoice choice;
   bool colorblind;
 
+  /// Null: follow the phone.
+  bool? reduceMotionChoice;
+
   Appearance(this.storage)
     : choice = ThemeChoice.values.asNameMap()[storage.theme] ?? ThemeChoice.auto,
-      colorblind = storage.colorblind {
+      colorblind = storage.colorblind,
+      reduceMotionChoice = storage.reduceMotion {
     _apply(notify: false);
   }
 
   bool get systemDark => PlatformDispatcher.instance.platformBrightness == Brightness.dark;
+
+  bool get systemReduceMotion {
+    final f = PlatformDispatcher.instance.accessibilityFeatures;
+    return f.disableAnimations || f.reduceMotion;
+  }
+
+  bool get reduceMotion => reduceMotionChoice ?? systemReduceMotion;
+
+  void setReduceMotion(bool v) {
+    reduceMotionChoice = v;
+    storage.setReduceMotion(v);
+    _apply();
+  }
+
+  /// Reads everything again from storage (after a backup is restored).
+  void reload() {
+    choice = ThemeChoice.values.asNameMap()[storage.theme] ?? ThemeChoice.auto;
+    colorblind = storage.colorblind;
+    reduceMotionChoice = storage.reduceMotion;
+    _apply();
+  }
 
   void setChoice(ThemeChoice c) {
     choice = c;
@@ -32,7 +58,8 @@ class Appearance extends ChangeNotifier {
     _apply();
   }
 
-  /// The phone switched between light and dark.
+  /// The phone switched between light and dark, or changed its motion
+  /// setting.
   void systemChanged() => _apply();
 
   void _apply({bool notify = true}) {
@@ -41,9 +68,10 @@ class Appearance extends ChangeNotifier {
       ThemeChoice.light => false,
       ThemeChoice.dark => true,
     };
-    final changed = dark != Palette.dark || colorblind != Palette.colorblind;
+    final changed = dark != Palette.dark || colorblind != Palette.colorblind || reduceMotion != Motion.reduced;
     Palette.dark = dark;
     Palette.colorblind = colorblind;
+    Motion.reduced = reduceMotion;
     if (changed && notify) notifyListeners();
   }
 }

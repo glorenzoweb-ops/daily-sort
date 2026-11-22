@@ -1,13 +1,17 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/backup.dart';
+import '../services/feedback.dart';
 import '../services/premium.dart';
 import '../services/sound.dart';
 import '../services/sound/ambience.dart';
 import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
+import 'motion.dart';
 import 'palette.dart';
 import 'sky.dart';
 import 'squish.dart';
@@ -31,12 +35,16 @@ class GameScreen extends StatefulWidget {
 
   /// A friend's result from the link that opened the app (`?r=...`).
   final String? incomingResult;
+
+  /// A backup code was restored: the app starts over with its data.
+  final VoidCallback? onRestored;
   const GameScreen({
     super.key,
     required this.storage,
     required this.premium,
     required this.appearance,
     this.incomingResult,
+    this.onRestored,
   });
 
   @override
@@ -92,12 +100,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> _loadDaily() async {
     final puzzle = await _puzzles.daily(DateTime.now());
     if (!mounted) return;
-    // Missed days? Banked streak freezes cover them.
+    // Missed a day? A trip across time zones is forgiven, and banked streak
+    // freezes cover the rest.
     final stats = widget.storage.stats;
+    final travel = stats.applyTravelGrace(puzzle.number, DateTime.now().timeZoneOffset.inMinutes);
     final used = stats.applyFreezes(puzzle.number);
     final lost = used == 0 && stats.streak == 0 && widget.storage.stats.streak > 0;
-    if (used > 0 || lost) await widget.storage.saveStats(stats);
-    if (used > 0) _toastFreezeUsed(used, stats.streak);
+    if (travel || used > 0 || lost) await widget.storage.saveStats(stats);
+    if (used > 0) {
+      _toastFreezeUsed(used, stats.streak);
+    } else if (travel) {
+      _toastTravel(stats.streak);
+    }
     setState(() {
       _daily?.dispose();
       _daily = GameController(puzzle, widget.storage);
@@ -262,6 +276,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> _shareToFriends() async {
     final d = _daily;
     if (d == null) return;
+    final plain = plainShareOn(context, widget.storage);
     final name = await ensureName(context, widget.storage);
     final String text;
     if (d.status == GameStatus.won) {
@@ -273,6 +288,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         moveColors: d.moveColors,
         streak: widget.storage.stats.currentStreak(d.puzzle.number),
         hints: widget.storage.hintsUsed(d.puzzle.number),
+        plain: plain,
         link: resultLink(
           FriendResult(
             name: name.isEmpty ? 'A friend' : name,
@@ -405,12 +421,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         onChanged: () {
           if (mounted) setState(() {});
         },
+        onRestored: widget.onRestored,
       ),
     );
   }
 
   void _onWin() {
-    _confetti.burst();
+    if (!Motion.reduced) _confetti.burst();
     // A calm moment: prepare what comes next.
     if (_inUnwind) {
       _puzzles.prefetchUnwind();
@@ -425,11 +442,37 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           !g.archive &&
           streakMilestones.contains(g.streakAfter) &&
           g.streakAfter > g.streakBefore) {
-        _confetti.burst();
+        if (!Motion.reduced) _confetti.burst();
         await showStreakMilestone(context, g.streakAfter);
         if (!mounted) return;
       }
       _openResults();
+    });
+  }
+
+  void _toastTravel(int streak) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.navy,
+          duration: const Duration(seconds: 5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Row(
+            children: [
+              const Icon(Icons.flight_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'New time zone? You lost a day on the clock, so your $streak-day streak is safe.',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     });
   }
 
@@ -641,9 +684,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
             const SizedBox(height: 8),
             Text(
-              g.status == GameStatus.won
-                  ? 'Solved!  ·  par ${p.par}'
-                  : (p.isPractice ? 'Par ${p.par}  ·  take your time' : 'Par ${p.par}  ·  ${g.movesLeft} left'),
+              switch (g.status) {
+                GameStatus.won => 'Solved!  ·  par ${p.par}',
+                // Players who run out wonder if it was even possible.
+                GameStatus.outOfMoves => 'Proven solvable in ${p.par}  ·  try again?',
+                _ => p.isPractice ? 'Par ${p.par}  ·  take your time' : 'Par ${p.par}  ·  ${g.movesLeft} left',
+              },
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w800,
@@ -757,6 +803,14 @@ class _MovesPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return Semantics(
+      label: limit == null ? '$used moves' : '$used of $limit moves used',
+      excludeSemantics: true,
+      child: _pill(),
+    );
+  }
+
+  Widget _pill() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
       decoration: BoxDecoration(
@@ -934,6 +988,18 @@ class _RoundAction extends StatelessWidget {
     // offscreen pass on every frame.
     final ink = enabled ? Palette.ink : Palette.ink.withValues(alpha: 0.35);
     final soft = enabled ? Palette.inkSoft : Palette.inkSoft.withValues(alpha: 0.45);
+    // One button for screen readers: the circle and its label together.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: _body(ink, soft, enabled),
+    );
+  }
+
+  Widget _body(Color ink, Color soft, bool enabled) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1130,7 +1196,16 @@ class SettingsSheet extends StatefulWidget {
   final Storage storage;
   final Appearance appearance;
   final VoidCallback onChanged;
-  const SettingsSheet({super.key, required this.storage, required this.appearance, required this.onChanged});
+
+  /// A backup code was restored.
+  final VoidCallback? onRestored;
+  const SettingsSheet({
+    super.key,
+    required this.storage,
+    required this.appearance,
+    required this.onChanged,
+    this.onRestored,
+  });
 
   @override
   State<SettingsSheet> createState() => _SettingsSheetState();
@@ -1142,6 +1217,91 @@ class _SettingsSheetState extends State<SettingsSheet> {
     widget.storage.setAmbience(a.name);
     setState(() {});
     widget.onChanged();
+  }
+
+  TextStyle get _title => TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink);
+  TextStyle get _note => TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft);
+
+  Widget _switch(String title, String? subtitle, bool value, ValueChanged<bool> onChanged) => SwitchListTile(
+    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+    title: Text(title, style: _title),
+    subtitle: subtitle == null ? null : Text(subtitle, style: _note),
+    value: value,
+    activeThumbColor: Palette.gold,
+    onChanged: (v) {
+      onChanged(v);
+      setState(() {});
+      widget.onChanged();
+    },
+  );
+
+  /// A volume slider, 0..1.
+  Widget _volume(IconData icon, String label, double value, ValueChanged<double> onChanged, {bool enabled = true}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: enabled ? Palette.ink : Palette.inkSoft.withValues(alpha: 0.5)),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: _title.copyWith(
+                fontSize: 14,
+                color: enabled ? Palette.ink : Palette.inkSoft.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Slider(
+              value: value,
+              activeColor: Palette.gold,
+              inactiveColor: Palette.line,
+              semanticFormatterCallback: (v) => '$label ${(v * 100).round()}%',
+              onChanged: enabled
+                  ? (v) {
+                      onChanged(v);
+                      setState(() {});
+                    }
+                  : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heading(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(text, textAlign: TextAlign.center, style: Palette.display(size: 22)),
+  );
+
+  Future<void> _saveBackup() async {
+    final code = Backup.of(widget.storage).encode();
+    final r = await shareResult(backupMessage(code));
+    if (!mounted) return;
+    if (r == ShareOutcome.copied) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text(
+            'Backup code copied. Keep it in your notes, or send it to your new phone.',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _restore() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => _RestoreDialog(storage: widget.storage),
+    );
+    if (ok != true || !mounted) return;
+    Navigator.of(context).pop();
+    widget.onRestored?.call();
   }
 
   @override
@@ -1161,10 +1321,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
         const SizedBox(height: 4),
         SwitchListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: Text(
-            'Colorblind mode',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
-          ),
+          title: Text('Colorblind mode', style: _title),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Row(
@@ -1180,13 +1337,9 @@ class _SettingsSheetState extends State<SettingsSheet> {
             setState(() {});
           },
         ),
-        Text(
-          'Easier-to-tell colors, and a shape on every ball.',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
-        ),
+        Text('Easier-to-tell colors, and a shape on every ball.', style: _note),
         Divider(height: 32, color: Palette.line),
-        Text('Sound', textAlign: TextAlign.center, style: Palette.display(size: 22)),
-        const SizedBox(height: 6),
+        _heading('Sound'),
         Text(
           'Pick a soundscape. It softens as your tubes fill.',
           textAlign: TextAlign.center,
@@ -1208,45 +1361,171 @@ class _SettingsSheetState extends State<SettingsSheet> {
           ],
         ),
         const SizedBox(height: 14),
-        SwitchListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: Text(
-            'Calm music',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
-          ),
-          subtitle: Text(
-            'A soft pad and a wandering kalimba, never the same twice',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
-          ),
-          value: Sounds.music,
-          activeThumbColor: Palette.gold,
-          onChanged: (v) {
-            Sounds.setMusic(v);
-            widget.storage.setMusic(v);
-            setState(() {});
-            widget.onChanged();
-          },
-        ),
-        SwitchListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: Text(
-            'Notes and clinks when you pour',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Palette.ink),
-          ),
-          value: Sounds.enabled,
-          activeThumbColor: Palette.gold,
-          onChanged: (v) {
-            Sounds.enabled = v;
-            widget.storage.setSound(v);
-            if (v) Sounds.note(4, volume: 0.5);
-            setState(() {});
-            widget.onChanged();
-          },
-        ),
+        _switch('Calm music', 'A soft pad and a wandering kalimba, never the same twice', Sounds.music, (v) {
+          Sounds.setMusic(v);
+          widget.storage.setMusic(v);
+        }),
+        const SizedBox(height: 8),
+        _volume(Icons.music_note_rounded, 'Pours', Sounds.effectsLevel, (v) {
+          Sounds.setEffectsLevel(v);
+          widget.storage.setVolume('effects', v);
+          widget.storage.setSound(v > 0);
+        }),
+        _volume(Icons.waves_rounded, 'Soundscape', Sounds.ambienceLevel, (v) {
+          Sounds.setAmbienceLevel(v);
+          widget.storage.setVolume('ambience', v);
+        }, enabled: Sounds.ambience != Ambience.off),
+        _volume(Icons.piano_rounded, 'Music', Sounds.musicLevel, (v) {
+          Sounds.setMusicLevel(v);
+          widget.storage.setVolume('music', v);
+        }, enabled: Sounds.music),
         Text(
           'On iPhone, turn off the silent switch to hear sound.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+        ),
+        Divider(height: 32, color: Palette.line),
+        _heading('Comfort'),
+        _switch('Vibration', 'A soft tap when you pick and pour', Haptics.enabled, (v) {
+          Haptics.enabled = v;
+          widget.storage.setHaptics(v);
+          if (v) Haptics.select();
+        }),
+        _switch(
+          'Reduce motion',
+          'No confetti, shaking or bouncing, and a still sky',
+          widget.appearance.reduceMotion,
+          widget.appearance.setReduceMotion,
+        ),
+        _switch(
+          'Share results as words',
+          'No emoji squares, so screen readers read it nicely',
+          plainShareOn(context, widget.storage),
+          widget.storage.setPlainShare,
+        ),
+        Divider(height: 32, color: Palette.line),
+        _heading('New phone?'),
+        Text(
+          'Save a backup code to move your streak, stats and history to another phone or browser. Paste it there with Restore.',
+          textAlign: TextAlign.center,
+          style: _note.copyWith(fontSize: 14),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: SmallButton(label: 'Save code', icon: Icons.save_alt_rounded, onTap: _saveBackup),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: SmallButton(label: 'Restore', icon: Icons.restore_rounded, onTap: _restore),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Paste a backup code, see what's in it, and restore it.
+class _RestoreDialog extends StatefulWidget {
+  final Storage storage;
+  const _RestoreDialog({required this.storage});
+
+  @override
+  State<_RestoreDialog> createState() => _RestoreDialogState();
+}
+
+class _RestoreDialogState extends State<_RestoreDialog> {
+  final _text = TextEditingController();
+  Backup? _backup;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _changed(String v) => setState(() => _backup = Backup.parse(v));
+
+  Future<void> _paste() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final v = data?.text ?? '';
+    _text.text = v;
+    _changed(v);
+  }
+
+  Future<void> _go() async {
+    final b = _backup;
+    if (b == null) return;
+    setState(() => _busy = true);
+    await b.restoreTo(widget.storage);
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  String _summary(Stats s) {
+    final days = s.streak == 1 ? '1-day' : '${s.streak}-day';
+    return '${s.solved} solved · $days streak · best ${s.maxStreak}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final b = _backup;
+    final here = widget.storage.stats;
+    final style = TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.ink);
+    return AlertDialog(
+      backgroundColor: Palette.card,
+      title: Text('Restore from a code', style: Palette.display(size: 22)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _text,
+            onChanged: _changed,
+            maxLines: 3,
+            style: TextStyle(fontSize: 13, color: Palette.ink),
+            decoration: InputDecoration(
+              hintText: 'Paste your backup code (it starts with DS1-)',
+              hintStyle: TextStyle(color: Palette.inkSoft),
+              border: const OutlineInputBorder(),
+              suffixIcon: IconButton(
+                tooltip: 'Paste',
+                icon: Icon(Icons.content_paste_rounded, color: Palette.ink),
+                onPressed: _paste,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (b != null) ...[
+            Text('In the code: ${_summary(b.stats)}', style: style),
+            const SizedBox(height: 4),
+            Text('On this device: ${_summary(here)}', style: style.copyWith(color: Palette.inkSoft)),
+            const SizedBox(height: 8),
+            Text(
+              'Restoring replaces the progress and settings on this device.',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.inkSoft),
+            ),
+          ] else if (_text.text.trim().isNotEmpty)
+            const Text(
+              "That doesn't look like a backup code. Copy the whole code and try again.",
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Palette.danger),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: Palette.inkSoft, fontWeight: FontWeight.w800),
+          ),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: Palette.gold, foregroundColor: Palette.navy),
+          onPressed: b == null || _busy ? null : _go,
+          child: const Text('Restore', style: TextStyle(fontWeight: FontWeight.w900)),
         ),
       ],
     );

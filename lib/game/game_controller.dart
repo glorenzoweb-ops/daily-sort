@@ -288,12 +288,8 @@ class GameController extends ChangeNotifier {
 
     final s = storage.stats;
     streakBefore = s.currentStreak(puzzle.number);
-    s.played++;
-    s.solved++;
-    s.streak = s.lastSolvedNumber == puzzle.number - 1 ? s.streak + 1 : 1;
-    if (s.streak > s.maxStreak) s.maxStreak = s.streak;
+    s.addDailySolve(puzzle.number, DateTime.now().timeZoneOffset.inMinutes);
     streakAfter = s.streak;
-    s.lastSolvedNumber = puzzle.number;
     final st = starsFor(history.length, puzzle.par);
     s.stars[st] = (s.stars[st] ?? 0) + 1;
     storage.saveStats(s);

@@ -90,6 +90,15 @@ class Palette {
       GoogleFonts.fredoka(fontSize: size, fontWeight: FontWeight.w700, color: color ?? ink, letterSpacing: spacing);
 
   static const emoji = <String>['🟥', '🟨', '🟩', '🟦', '🟪', '🟧'];
+
+  /// What a screen reader calls each ball color.
+  static const ballNames = <String>['red', 'yellow', 'green', 'blue', 'purple', 'orange'];
+}
+
+/// A ball's name for screen readers, with its shape in colorblind mode.
+String ballName(int color) {
+  final name = Palette.ballNames[color % Palette.ballNames.length];
+  return Palette.colorblind ? '$name ${Palette.shapes[color % Palette.shapes.length].name}' : name;
 }
 
 enum BallShape { triangle, star, square, diamond, plus, ring }

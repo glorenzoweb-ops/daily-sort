@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:material_ui/material_ui.dart';
 
 import 'ambient_clock.dart';
+import 'motion.dart';
 import 'palette.dart';
 
 /// A soft sky behind the game that follows the player's local time: peach
@@ -24,7 +25,10 @@ class _SkyBackgroundState extends State<SkyBackground> {
 
   // Clouds and stars move slowly: they follow the shared 20 fps clock, so
   // they redraw on the same frames as the board's idle life.
-  void _onClock() => _t.value = AmbientClock.instance.seconds;
+  // Reduce motion keeps the sky still.
+  void _onClock() {
+    if (!Motion.reduced) _t.value = AmbientClock.instance.seconds;
+  }
 
   @override
   void initState() {

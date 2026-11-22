@@ -107,6 +107,12 @@ Every pour plays a note (`lib/services/sound.dart`, synthesized, no audio files)
 
 Soundscapes react to play: they fade down to 40% as tubes complete, a wind chime tuned to the pour notes rings for each finished tube, and birdsong plays on the solve. "Calm music" in the sound panel adds a slow pad and a kalimba that wanders over the same pentatonic notes, so it never repeats the same way (`lib/services/sound/music.dart`).
 
+**Comfort and access.** Settings has volume sliders (pours, soundscape, music), a vibration switch, Reduce motion (no confetti, shake, bounce or breathing balls, and a still sky; it follows the phone's setting until the player picks, `lib/ui/motion.dart`) and "Share results as words" (no emoji squares; on by default while a screen reader runs). Every tube is a screen-reader button that reads its balls bottom to top, and each tap is announced.
+
+**Backup code.** Settings → New phone? → Save code copies (or shares) one line, `DS1-…`, holding everything the device saved except the puzzle cache. Restore on the other device replaces its progress and restarts the game screen (`lib/services/backup.dart`). No account, no server.
+
+**Travel grace.** The streak keeps the phone's time zone from the last solve. If exactly one day is missed and the time zone changed, the streak is kept without spending a freeze, and flying west back to an older puzzle number never resets it (`Stats.applyTravelGrace`, `Stats.addDailySolve`).
+
 **Don't change the generator** (`rng.dart`, `daily.dart`, `board.dart` move rules) once people are playing: every past and future puzzle would change. The test `first 60 puzzles match the pinned fingerprint` fails if you do.
 
 ## Adding Daily Sort+ later ($2.99/mo)
