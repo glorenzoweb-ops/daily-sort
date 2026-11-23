@@ -23,7 +23,7 @@ Create one subscription group named **Daily Sort+**, with:
 | Product ID | Name | Duration | Price (US) | Extra |
 | --- | --- | --- | --- | --- |
 | `plus_yearly` | Daily Sort+ Yearly | 1 year | $19.99 | Introductory offer: **Free, 1 week**, new subscribers |
-| `plus_monthly` | Daily Sort+ Monthly | 1 month | $2.99 | none |
+| `plus_monthly` | Daily Sort+ Monthly | 1 month | $4.99 | none |
 
 - Turn on **Family Sharing** for both. The paywall promises it.
 - Put `plus_yearly` at a higher level than monthly in the group, so switching is an upgrade.
@@ -80,7 +80,7 @@ To try everything without the store (screenshots, demos), use `--dart-define=FAK
 | --- | --- |
 | Daily stays free, Plus adds the archive, unlimited hints, themes and the advent calendar | `lib/services/premium.dart` |
 | Lifetime purchase next to the plans | `lifetimePlan`, paywall in `lib/ui/archive.dart` |
-| Yearly is pre-selected, with "Best value" | `yearlyPlan`, `PaywallSheet` |
+| Yearly is pre-selected, with "Save 66%" next to monthly | `yearlyPlan`, `PaywallSheet` |
 | 7-day trial, with a local reminder 2 days before it ends | `lib/services/reminders_native.dart` |
 | Family Sharing promised on the paywall | turn it on in step 3 |
 | Ball themes as one-time buys | `lib/ui/themes.dart`, `lib/ui/shop.dart` |
