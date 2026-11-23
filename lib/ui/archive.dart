@@ -4,13 +4,11 @@ import '../game/daily.dart';
 import '../services/premium.dart';
 import '../services/storage.dart';
 import 'palette.dart';
-import 'picture.dart';
 import 'sheets.dart';
 import 'squish.dart';
 
-/// Every past daily puzzle, each with its picture: colored if you solved it,
-/// a pencil sketch if not. The last few days are free; the rest is Daily
-/// Sort+.
+/// Every past daily puzzle, with your stars on the ones you solved. The last
+/// few days are free; the rest is Daily Sort+.
 class ArchiveSheet extends StatelessWidget {
   final int today;
   final Storage storage;
@@ -30,7 +28,7 @@ class ArchiveSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final past = [for (var n = today - 1; n >= 1; n--) n];
-    final colored =
+    final solvedCount =
         past.where((n) => storage.day(n)?.solved ?? false).length + (storage.day(today)?.solved ?? false ? 1 : 0);
     // Puzzles you already played stay open: they're yours.
     bool isLocked(int n) => archiveLocked(n, today, premium) && storage.day(n) == null;
@@ -41,7 +39,7 @@ class ArchiveSheet extends StatelessWidget {
         const SheetTitle('Past puzzles'),
         const SizedBox(height: 6),
         Text(
-          'Pictures colored: $colored of $today',
+          'Solved: $solvedCount of $today',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
         ),
@@ -51,7 +49,7 @@ class ArchiveSheet extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(color: Palette.background, borderRadius: BorderRadius.circular(20)),
             child: Text(
-              'The archive starts tomorrow. Every day\'s puzzle and picture will wait for you here.',
+              'The archive starts tomorrow. Every day\'s puzzle will wait for you here.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 15, height: 1.35, fontWeight: FontWeight.w700, color: Palette.ink),
             ),
@@ -78,7 +76,7 @@ class ArchiveSheet extends StatelessWidget {
           const SizedBox(height: 16),
           PlusBanner(
             text: locked > 0
-                ? 'Unlock $locked more ${locked == 1 ? 'puzzle' : 'puzzles'} and every picture with Daily Sort+'
+                ? 'Unlock $locked more ${locked == 1 ? 'puzzle' : 'puzzles'} with Daily Sort+'
                 : 'The last $freeArchiveDays days are free. Daily Sort+ keeps every puzzle forever.',
             onTap: onUnlock,
           ),
@@ -100,7 +98,6 @@ class _Tile extends StatelessWidget {
     final day = dayForNumber(number);
     final solved = record?.solved ?? false;
     final started = !solved && (record?.moves.isNotEmpty ?? false);
-    final scene = sceneForNumber(number);
     final status = solved
         ? '✓ ${record!.solvedMoves} moves'
         : (started ? 'In progress' : (locked ? 'Daily Sort+' : 'Not played'));
@@ -123,14 +120,9 @@ class _Tile extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Opacity(
-                          opacity: locked ? 0.55 : 1,
-                          child: CustomPaint(
-                            painter: ScenePainter(scene, solved ? const [1.0, 1, 1, 1, 1] : const [0.0, 0, 0, 0, 0]),
-                          ),
-                        ),
+                      Opacity(
+                        opacity: locked ? 0.55 : 1,
+                        child: _TileFace(day: day, record: record),
                       ),
                       if (locked)
                         Center(
@@ -281,23 +273,28 @@ class _PaywallSheetState extends State<PaywallSheet> {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              for (final (i, n) in const [(0, 3), (1, 5), (2, 6)])
+              for (final (i, label) in const [(0, 'Mon'), (1, 'Tue'), (2, 'Wed')])
                 Transform.translate(
                   offset: Offset((i - 1) * 74.0, i == 1 ? -4 : 6),
                   child: Transform.rotate(
                     angle: (i - 1) * 0.12,
                     child: Container(
-                      width: 116,
-                      height: 62,
-                      padding: const EdgeInsets.all(3),
+                      width: 92,
+                      height: 72,
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD4A574),
-                        borderRadius: BorderRadius.circular(8),
+                        color: Palette.card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Palette.gold, width: 1.5),
                         boxShadow: const [BoxShadow(color: Color(0x33241A10), blurRadius: 8, offset: Offset(0, 3))],
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(5),
-                        child: CustomPaint(painter: ScenePainter(scenes[n], const [1.0, 1, 1, 1, 1])),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(label, style: Palette.display(size: 18)),
+                          const SizedBox(height: 4),
+                          const _Stars(count: 3, size: 14),
+                        ],
                       ),
                     ),
                   ),
@@ -314,7 +311,6 @@ class _PaywallSheetState extends State<PaywallSheet> {
         ),
         const SizedBox(height: 14),
         perk('🗓️', 'The whole archive', 'Every past puzzle, any time, at your pace'),
-        perk('🖼️', 'Every picture', 'Color in the full gallery, one puzzle at a time'),
         perk('💡', 'Unlimited hints', 'One free hint a day for everyone, as many as you like with Plus'),
         perk('📈', 'Coming next', 'A par-or-bust hard mode'),
         perk('💛', 'Support a tiny studio', 'No ads, ever. Keeps Daily Sort calm and free for everyone'),
@@ -429,4 +425,53 @@ class _PlanCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The top of an archive tile: the weekday and how it went.
+class _TileFace extends StatelessWidget {
+  final DateTime day;
+  final DayRecord? record;
+  const _TileFace({required this.day, required this.record});
+
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  @override
+  Widget build(BuildContext context) {
+    final r = record;
+    final solved = r?.solved ?? false;
+    final par = r?.par, moves = r?.solvedMoves;
+    final stars = !solved || par == null || moves == null ? 0 : (moves <= par ? 3 : (moves == par + 1 ? 2 : 1));
+    return Container(
+      decoration: BoxDecoration(
+        color: solved ? Palette.picked : Palette.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(_weekdays[day.weekday - 1], style: Palette.display(size: 22)),
+          const SizedBox(height: 4),
+          if (solved && stars == 0)
+            const Text('✓', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF1F9A7A)))
+          else
+            _Stars(count: stars, size: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _Stars extends StatelessWidget {
+  final int count;
+  final double size;
+  const _Stars({required this.count, required this.size});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (var i = 0; i < 3; i++)
+        Icon(Icons.star_rounded, size: size, color: i < count ? Palette.gold : Palette.line),
+    ],
+  );
 }
