@@ -39,7 +39,7 @@ const yearlyPlan = Product(
   trialDays: 7,
 );
 const monthlyPlan = Product('plus_monthly', ProductKind.subscription, 'Monthly', r'$2.99', period: 'month');
-const lifetimePlan = Product('plus_lifetime', ProductKind.lifetime, 'Lifetime', r'$39.99', badge: 'Pay once');
+const lifetimePlan = Product('plus_lifetime', ProductKind.lifetime, 'Lifetime', r'$34.99', badge: 'Pay once');
 const premiumPlans = [yearlyPlan, monthlyPlan, lifetimePlan];
 
 /// Ball theme packs. Plus members get them all.
@@ -50,7 +50,7 @@ const themeProducts = [themePastel, themeJewel, themeNeon];
 
 /// The December advent calendar: 24 puzzles and pictures. Plus members get
 /// it too.
-const adventPack = Product('advent_2026', ProductKind.advent, 'Advent calendar', r'$4.99');
+const adventPack = Product('advent_2026', ProductKind.advent, 'Advent calendar', r'$3.99');
 
 /// Tips: consumable, so they can be given more than once.
 const tipSmall = Product('tip_small', ProductKind.tip, 'A coffee', r'$2.99');

@@ -32,11 +32,11 @@ Create one subscription group named **Daily Sort+**, with:
 
 | Product ID | Type | Name | Price (US) |
 | --- | --- | --- | --- |
-| `plus_lifetime` | Non-Consumable | Daily Sort+ Lifetime | $39.99 |
+| `plus_lifetime` | Non-Consumable | Daily Sort+ Lifetime | $34.99 |
 | `theme_pastel` | Non-Consumable | Pastel balls | $1.99 |
 | `theme_jewel` | Non-Consumable | Jewel balls | $1.99 |
 | `theme_neon` | Non-Consumable | Neon balls | $1.99 |
-| `advent_2026` | Non-Consumable | Advent calendar 2026 | $4.99 |
+| `advent_2026` | Non-Consumable | Advent calendar 2026 | $3.99 |
 | `tip_small` | Consumable | A coffee for the developer | $2.99 |
 | `tip_large` | Consumable | A cake for the developer | $4.99 |
 
