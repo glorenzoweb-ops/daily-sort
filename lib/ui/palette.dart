@@ -52,7 +52,14 @@ class Palette {
 
   /// Ball colors, index = color id. Each has a matching emoji square for the
   /// share card, so keep the lists in sync.
-  static List<Color> get balls => colorblind ? safeBalls : candyBalls;
+  static List<Color> get balls => colorblind ? safeBalls : themeBalls;
+
+  /// The chosen ball theme (see `themes.dart`), set by [Appearance].
+  static List<Color> themeBalls = candyBalls;
+  static String themeId = 'candy';
+
+  /// Changes whenever ball colors change: for image caches.
+  static String get ballsKey => colorblind ? 'cb' : themeId;
 
   static const candyBalls = <Color>[
     Color(0xFFFF4D6D), // red

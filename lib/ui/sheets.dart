@@ -391,7 +391,8 @@ class _ResultSheetState extends State<ResultSheet> {
           ),
           const SizedBox(height: 18),
         ],
-        if (!widget.premium.isPremium)
+        // A gentle note, only once the player has enjoyed a few dailies.
+        if (!widget.premium.isPremium && widget.storage.stats.solved >= solvesBeforePlusNote)
           PlusBanner(text: 'Daily Sort+: every past puzzle, any time', onTap: widget.onPlus),
       ],
     );

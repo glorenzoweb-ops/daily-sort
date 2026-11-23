@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../services/storage.dart';
 import 'motion.dart';
 import 'palette.dart';
+import 'themes.dart';
 
 /// Light or dark, colorblind mode and reduce motion. Saved on the device and
 /// applied to [Palette] and [Motion], which every screen reads.
@@ -16,10 +17,16 @@ class Appearance extends ChangeNotifier {
   /// Null: follow the phone.
   bool? reduceMotionChoice;
 
+  /// The chosen ball theme, and who decides if it's still owned (a lapsed
+  /// subscription falls back to Candy).
+  String ballTheme;
+  bool Function(String productId) owns = (_) => true;
+
   Appearance(this.storage)
     : choice = ThemeChoice.values.asNameMap()[storage.theme] ?? ThemeChoice.auto,
       colorblind = storage.colorblind,
-      reduceMotionChoice = storage.reduceMotion {
+      reduceMotionChoice = storage.reduceMotion,
+      ballTheme = storage.ballTheme {
     _apply(notify: false);
   }
 
@@ -38,8 +45,15 @@ class Appearance extends ChangeNotifier {
     _apply();
   }
 
+  void setBallTheme(String id) {
+    ballTheme = id;
+    storage.setBallTheme(id);
+    _apply();
+  }
+
   /// Reads everything again from storage (after a backup is restored).
   void reload() {
+    ballTheme = storage.ballTheme;
     choice = ThemeChoice.values.asNameMap()[storage.theme] ?? ThemeChoice.auto;
     colorblind = storage.colorblind;
     reduceMotionChoice = storage.reduceMotion;
@@ -68,7 +82,16 @@ class Appearance extends ChangeNotifier {
       ThemeChoice.light => false,
       ThemeChoice.dark => true,
     };
-    final changed = dark != Palette.dark || colorblind != Palette.colorblind || reduceMotion != Motion.reduced;
+    var theme = themeById(ballTheme);
+    final pack = theme.product;
+    if (pack != null && !owns(pack.id)) theme = candyTheme;
+    final changed =
+        dark != Palette.dark ||
+        colorblind != Palette.colorblind ||
+        reduceMotion != Motion.reduced ||
+        theme.id != Palette.themeId;
+    Palette.themeId = theme.id;
+    Palette.themeBalls = theme.colors;
     Palette.dark = dark;
     Palette.colorblind = colorblind;
     Motion.reduced = reduceMotion;

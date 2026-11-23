@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import 'services/comfort.dart';
 import 'services/link.dart';
 import 'services/premium.dart';
+import 'services/premium_revenuecat.dart';
 import 'services/sound.dart';
 import 'services/storage.dart';
 import 'ui/appearance.dart';
@@ -19,12 +20,25 @@ Future<void> main() async {
   final storage = await Storage.open();
   applySoundAndHaptics(storage);
   Sounds.init(); // not awaited: the game never waits on audio
-  // Swap for a RevenueCat-backed implementation when payments go live.
-  final premium = const bool.fromEnvironment('PREMIUM') ? UnlockedPremium() : ComingSoonPremium();
-  final appearance = Appearance(storage);
+  final premium = _premium();
+  final appearance = Appearance(storage)..owns = premium.ownsTheme;
+  // A purchase or a lapsed subscription can change which theme shows.
+  premium.addListener(appearance.systemChanged);
+  appearance.systemChanged();
   runApp(
     DailySortApp(storage: storage, premium: premium, appearance: appearance, incomingResult: incomingResultParam()),
   );
+}
+
+/// Real payments when a RevenueCat key was built in (`--dart-define=
+/// RC_IOS_KEY=appl_...`), otherwise the "coming soon" paywall. The web
+/// never sells: Plus is bought in the app.
+PremiumService _premium() {
+  if (const bool.fromEnvironment('PREMIUM')) return UnlockedPremium();
+  if (const bool.fromEnvironment('FAKE_STORE')) return FakeStorePremium();
+  final key = RevenueCatPremium.keyForPlatform();
+  if (key == null) return ComingSoonPremium();
+  return RevenueCatPremium(key)..init();
 }
 
 class DailySortApp extends StatefulWidget {
