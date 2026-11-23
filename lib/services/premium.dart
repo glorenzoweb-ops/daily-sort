@@ -35,10 +35,10 @@ const yearlyPlan = Product(
   'Yearly',
   r'$19.99',
   period: 'year',
-  badge: 'Best value',
+  badge: 'Save 66%',
   trialDays: 7,
 );
-const monthlyPlan = Product('plus_monthly', ProductKind.subscription, 'Monthly', r'$2.99', period: 'month');
+const monthlyPlan = Product('plus_monthly', ProductKind.subscription, 'Monthly', r'$4.99', period: 'month');
 const lifetimePlan = Product('plus_lifetime', ProductKind.lifetime, 'Lifetime', r'$34.99', badge: 'Pay once');
 const premiumPlans = [yearlyPlan, monthlyPlan, lifetimePlan];
 
