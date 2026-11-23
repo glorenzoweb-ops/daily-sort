@@ -58,15 +58,12 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 | `lib/ui/sky.dart` | Background sky that follows the player's local time (morning, day, sunset, starry night) |
 | `lib/ui/streak.dart` | Flame streak counter, streak sheet, freeze progress, and milestone celebrations (3, 7, 14, 30, 50, 100, 200, 365 days) |
 | `lib/ui/squish.dart` | Soft press feedback for every button |
-| `lib/ui/picture.dart` | Picture of the day: 8 coloring-book scenes drawn in code. Each ball color paints one part, which fills in when you complete that color's tube. The title is revealed on solve |
 | `lib/ui/social.dart`, `lib/services/friends.dart` | Friends board. Results travel in the share link (`?r=2-13-1-5-Ana`), so there's no server: opening a friend's link puts them on your board for that day |
-| `lib/ui/archive.dart` | Past puzzles (with their pictures) and the Daily Sort+ paywall |
+| `lib/ui/archive.dart` | Past puzzles (with your stars) and the Daily Sort+ paywall |
 | `lib/services/puzzles.dart` | Hands out puzzles with no waiting: saves daily puzzles on the device, prepares tomorrow's after a win and the next Unwind puzzle ahead of time |
 | `lib/services/background.dart` | Runs heavy work (sound synthesis, puzzle generation) off the UI thread on phones, between frames on the web |
 
 **Streaks.** Every 5 Unwind solves earn a streak freeze (bank up to 2). When you open the game after missing days, banked freezes cover them automatically (`Stats.applyFreezes`); a freeze keeps the streak but doesn't add a day.
-
-**Picture of the day.** `sceneForNumber(n)` picks the day's scene, the same for everyone and never the same two days running. Add scenes at the end of `scenes` in `lib/ui/picture.dart`: each is 5 paths on a 200 x 100 canvas, one per ball color (red, yellow, green, blue, purple). On 4-color days the purple part starts colored. The share image now shows the picture with the solve painting under it.
 
 **Friends.** Sharing asks once for a first name and adds a link to your result. When a friend opens it, they see a toast ("Ana solved today's puzzle in 12 moves. Your turn!"), a chip above the board, and a ranked board (fewest moves, then fewest tries). Results are kept on the device for 30 days. A live board without shared links would need a small backend (for example Supabase); the link format stays the same.
 
@@ -84,7 +81,7 @@ If you rename the repo or use a custom domain, update `shareUrl` in `lib/service
 - `web/index.html` caps rendering at 2 pixels per CSS pixel. 3x phone screens look the same and each frame costs less than half as much.
 - Background motion (sky, ball buddies breathing and blinking) runs on one shared 20 fps clock (`lib/ui/ambient_clock.dart`), driven by a timer rather than a ticker. The board only runs at full frame rate while something moves and then goes back to sleep.
 - The board stamps pre-rendered images (glass, shelf, corks, balls, glows). The images a completed tube and the win need are prepared one per idle frame in advance. Making them at the moment itself means a read back from the graphics card, which hitches.
-- The picture of the day is recorded once and turned into an image a moment after it changes. The sky's static part is redrawn every 10 minutes.
+- The sky's static part is redrawn every 10 minutes.
 - `lib/ui/warmup.dart` draws one of each effect into a tiny hidden image at startup, so the graphics card has compiled them before the first tube completes.
 - Avoid `Opacity` and `ShaderMask` on things that stay on screen: each costs an extra offscreen pass on every frame.
 - Fonts are bundled in `assets/google_fonts/` (OFL licensed), so nothing is downloaded at startup.
