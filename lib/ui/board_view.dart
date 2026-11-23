@@ -1222,9 +1222,7 @@ class _BoardPainter extends CustomPainter {
     }
     sprites.draw(
       canvas,
-      sprites.get('ball:$colorIndex:${Palette.colorblind}', Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3), (
-        c,
-      ) {
+      sprites.get('ball:$colorIndex:${Palette.ballsKey}', Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3), (c) {
         _ball(c, Offset.zero, Palette.balls[colorIndex], r);
         // Colorblind mode: a shape under the face tells the colors apart.
         if (Palette.colorblind) {

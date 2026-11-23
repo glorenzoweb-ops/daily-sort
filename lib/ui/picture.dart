@@ -546,7 +546,7 @@ class _ScenePictures {
   static final ValueNotifier<int> ready = ValueNotifier(0);
 
   static String _key(Scene scene, List<double> reveal, Size size) =>
-      '${Palette.colorblind ? 'cb' : ''}${scenes.indexOf(scene)}|${reveal.map((v) => v == 1 ? 1 : 0).join()}|${size.width.round()}|${size.height.round()}';
+      '${Palette.ballsKey}${scenes.indexOf(scene)}|${reveal.map((v) => v == 1 ? 1 : 0).join()}|${size.width.round()}|${size.height.round()}';
 
   static ui.Picture picture(Scene scene, List<double> reveal, Size size, {bool makeImage = false}) {
     final key = _key(scene, reveal, size);

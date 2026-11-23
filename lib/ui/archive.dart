@@ -1,7 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
+import '../services/links.dart';
 import '../services/premium.dart';
+import '../services/reminders.dart';
 import '../services/storage.dart';
 import 'palette.dart';
 import 'picture.dart';
@@ -210,8 +212,9 @@ class PlusBanner extends StatelessWidget {
   );
 }
 
-/// The Daily Sort+ paywall. Today's puzzle is always free; the subscription
-/// is for the archive and the extras.
+/// The Daily Sort+ paywall. Today's puzzle is always free; Plus is for the
+/// archive and the extras. It only opens when the player taps something
+/// that needs Plus, never by itself.
 class PaywallSheet extends StatefulWidget {
   final PremiumService premium;
   final Storage storage;
@@ -222,26 +225,65 @@ class PaywallSheet extends StatefulWidget {
 }
 
 class _PaywallSheetState extends State<PaywallSheet> {
-  PremiumPlan _plan = yearlyPlan;
+  Product _plan = yearlyPlan;
   bool _busy = false;
   bool _waitlisted = false;
 
   Future<void> _buy() async {
     if (_busy) return;
-    if (!widget.premium.canPurchase) {
+    final premium = widget.premium;
+    if (!premium.canPurchase) {
       await widget.storage.addPremiumInterest();
       setState(() => _waitlisted = true);
       return;
     }
     setState(() => _busy = true);
-    final ok = await widget.premium.purchase(_plan);
+    final ok = await premium.purchase(_plan);
     if (!mounted) return;
     setState(() => _busy = false);
-    if (ok) Navigator.pop(context, true);
+    if (!ok) return;
+    // A trial started: remind two days before it turns into a paid plan.
+    final ends = premium.trialEnds;
+    if (ends != null) await TrialReminder.schedule(ends);
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  Future<void> _restore() async {
+    setState(() => _busy = true);
+    await widget.premium.restore();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (widget.premium.isPremium) {
+      Navigator.pop(context, true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          behavior: SnackBarBehavior.floating,
+          content: Text('No Daily Sort+ purchase found on this account.', style: TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+  }
+
+  String get _buttonLabel {
+    if (_busy) return 'One moment…';
+    if (_plan.kind == ProductKind.lifetime) return 'Unlock forever';
+    return _plan.trialDays > 0 ? 'Start ${_plan.trialDays}-day free trial' : 'Subscribe';
+  }
+
+  String get _terms {
+    final price = widget.premium.priceOf(_plan);
+    if (_plan.kind == ProductKind.lifetime) return 'Pay $price once. Yours to keep, no subscription.';
+    if (_plan.trialDays > 0) {
+      return 'Free for ${_plan.trialDays} days, then $price/${_plan.period}. '
+          'We\'ll remind you 2 days before the trial ends. Cancel anytime.';
+    }
+    return '$price/${_plan.period}. Cancel anytime.';
   }
 
   @override
   Widget build(BuildContext context) {
+    final premium = widget.premium;
     Widget perk(String emoji, String title, String sub) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -272,6 +314,7 @@ class _PaywallSheetState extends State<PaywallSheet> {
         ],
       ),
     );
+    final small = TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -313,18 +356,24 @@ class _PaywallSheetState extends State<PaywallSheet> {
           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.inkSoft),
         ),
         const SizedBox(height: 14),
-        perk('🗓️', 'The whole archive', 'Every past puzzle, any time, at your pace'),
-        perk('🖼️', 'Every picture', 'Color in the full gallery, one puzzle at a time'),
+        perk('🗓️', 'The whole archive', 'Every past puzzle and picture, any time, at your pace'),
         perk('💡', 'Unlimited hints', 'One free hint a day for everyone, as many as you like with Plus'),
-        perk('📈', 'Coming next', 'A par-or-bust hard mode'),
-        perk('💛', 'Support a tiny studio', 'No ads, ever. Keeps Daily Sort calm and free for everyone'),
+        perk('🎨', 'Every ball theme', 'Pastel, Jewel and Neon, and the ones that come next'),
+        perk('🎄', 'The advent calendar', '24 winter puzzles and pictures, Dec 1 to 24'),
+        perk('👨‍👩‍👧', 'Share with your family', 'One plan covers up to 6 people with Family Sharing'),
+        perk('💛', 'No ads, ever', 'Keeps Daily Sort calm, and keeps a tiny studio going'),
         const SizedBox(height: 14),
         Row(
           children: [
             for (final p in premiumPlans) ...[
-              if (p != premiumPlans.first) const SizedBox(width: 10),
+              if (p != premiumPlans.first) const SizedBox(width: 8),
               Expanded(
-                child: _PlanCard(plan: p, selected: p == _plan, onTap: () => setState(() => _plan = p)),
+                child: _PlanCard(
+                  plan: p,
+                  price: premium.priceOf(p),
+                  selected: p == _plan,
+                  onTap: () => setState(() => _plan = p),
+                ),
               ),
             ],
           ],
@@ -342,88 +391,100 @@ class _PaywallSheetState extends State<PaywallSheet> {
                     border: Border.all(color: const Color(0xFF2EC4A0), width: 1.5),
                   ),
                   child: Text(
-                    'You\'re early! Daily Sort+ opens with the App Store and Google Play release. '
-                    'Until then, the last few days of the archive are free for everyone.',
+                    'Daily Sort+ is sold in the iPhone app. '
+                    'Here on the web, the last few days of the archive are free for everyone.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 14, height: 1.35, fontWeight: FontWeight.w800, color: Palette.ink),
+                    style: TextStyle(fontSize: 14, height: 1.35, fontWeight: FontWeight.w800, color: Palette.navy),
                   ),
                 )
               : SizedBox(
                   key: const ValueKey('buy'),
                   width: double.infinity,
-                  child: BigButton(
-                    label: _busy
-                        ? 'One moment…'
-                        : (_plan.trialDays > 0 ? 'Start ${_plan.trialDays}-day free trial' : 'Subscribe'),
-                    onTap: _buy,
-                  ),
+                  child: BigButton(label: _buttonLabel, onTap: _buy),
                 ),
         ),
         const SizedBox(height: 8),
-        Text(
-          _plan.trialDays > 0
-              ? 'Free for ${_plan.trialDays} days, then ${_plan.price}/${_plan.period}. Cancel anytime.'
-              : '${_plan.price}/${_plan.period}. Cancel anytime.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
-        ),
-        if (widget.premium.canPurchase)
-          TextButton(
-            onPressed: widget.premium.restore,
-            child: Text(
-              'Restore purchases',
-              style: TextStyle(fontWeight: FontWeight.w800, color: Palette.inkSoft),
+        Text(_terms, textAlign: TextAlign.center, style: small),
+        const SizedBox(height: 4),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            if (premium.canPurchase)
+              TextButton(
+                onPressed: _busy ? null : _restore,
+                child: Text('Restore purchases', style: small.copyWith(fontWeight: FontWeight.w800)),
+              ),
+            TextButton(
+              onPressed: () => openLink(termsUrl),
+              child: Text('Terms of Use', style: small),
             ),
-          ),
+            TextButton(
+              onPressed: () => openLink(privacyUrl),
+              child: Text('Privacy', style: small),
+            ),
+          ],
+        ),
       ],
     );
   }
 }
 
 class _PlanCard extends StatelessWidget {
-  final PremiumPlan plan;
+  final Product plan;
+  final String price;
   final bool selected;
   final VoidCallback onTap;
-  const _PlanCard({required this.plan, required this.selected, required this.onTap});
+  const _PlanCard({required this.plan, required this.price, required this.selected, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Squish(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-          decoration: BoxDecoration(
-            color: selected ? Palette.picked : Palette.card,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: selected ? Palette.gold : Palette.line, width: selected ? 2.5 : 1.5),
-          ),
-          child: Column(
-            children: [
-              Text(
-                plan.label,
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
-              ),
-              const SizedBox(height: 2),
-              Text(plan.price, style: Palette.display(size: 24)),
-              Text(
-                'per ${plan.period}',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: plan.badge == null ? Colors.transparent : Palette.ink,
-                  borderRadius: BorderRadius.circular(10),
+    final per = plan.period == null ? 'once' : 'per ${plan.period}';
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${plan.label}, $price $per${plan.trialDays > 0 ? ', ${plan.trialDays}-day free trial' : ''}',
+      excludeSemantics: true,
+      child: Squish(
+        child: GestureDetector(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.fromLTRB(6, 12, 6, 12),
+            decoration: BoxDecoration(
+              color: selected ? Palette.picked : Palette.card,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: selected ? Palette.gold : Palette.line, width: selected ? 2.5 : 1.5),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  plan.label,
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Palette.inkSoft),
                 ),
-                child: Text(
-                  plan.badge ?? ' ',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(price, style: Palette.display(size: 22)),
                 ),
-              ),
-            ],
+                Text(
+                  per,
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: plan.badge == null ? Colors.transparent : Palette.ink,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    plan.badge ?? ' ',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Palette.onInk),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

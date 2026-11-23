@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/background.dart';
 import '../services/backup.dart';
 import '../services/feedback.dart';
 import '../services/premium.dart';
@@ -20,10 +21,12 @@ import '../services/link.dart';
 import '../services/puzzles.dart';
 import '../services/reactions.dart';
 import '../services/share.dart';
+import 'advent.dart';
 import 'appearance.dart';
 import 'archive.dart';
 import 'picture.dart';
 import 'sheets.dart';
+import 'shop.dart';
 import 'social.dart';
 import 'streak.dart';
 import 'warmup.dart';
@@ -383,12 +386,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
   }
 
+  /// The advent door being played in Unwind, if any.
+  int? _adventDoor;
+
   Future<void> _newUnwind() async {
     final puzzle = await _puzzles.unwind();
     if (!mounted) return;
     setState(() {
       _unwind?.dispose();
       _unwind = GameController(puzzle, widget.storage);
+      _adventDoor = null;
     });
     Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
   }
@@ -412,6 +419,47 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _openShop() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    showCozySheet(
+      context,
+      ShopSheet(
+        premium: widget.premium,
+        appearance: widget.appearance,
+        onPlus: () => _openPaywall(reopenArchive: false),
+        onAdvent: _openAdvent,
+      ),
+    );
+  }
+
+  void _openAdvent() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    showCozySheet(
+      context,
+      AdventSheet(
+        premium: widget.premium,
+        storage: widget.storage,
+        onPlus: () => _openPaywall(reopenArchive: false),
+        onPlay: (n) {
+          Navigator.of(context).pop();
+          _playAdvent(n);
+        },
+      ),
+    );
+  }
+
+  /// Plays advent door [n] in Unwind: no move limit, its own picture.
+  Future<void> _playAdvent(int n) async {
+    final puzzle = await runInBackground(() => adventPuzzle(n));
+    if (!mounted) return;
+    setState(() {
+      _inUnwind = true;
+      _unwind?.dispose();
+      _unwind = GameController(puzzle, widget.storage);
+      _adventDoor = n;
+    });
+  }
+
   void _openSettings() {
     showCozySheet(
       context,
@@ -422,12 +470,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           if (mounted) setState(() {});
         },
         onRestored: widget.onRestored,
+        onShop: _openShop,
       ),
     );
   }
 
   void _onWin() {
     if (!Motion.reduced) _confetti.burst();
+    final door = _adventDoor;
+    if (door != null && _inUnwind) widget.storage.addAdventSolved(door);
     // A calm moment: prepare what comes next.
     if (_inUnwind) {
       _puzzles.prefetchUnwind();
@@ -640,7 +691,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 4),
             Text(
-              p.isPractice ? 'UNWIND' : 'DAILY SORT',
+              _adventDoor != null && _inUnwind ? 'DOOR $_adventDoor' : (p.isPractice ? 'UNWIND' : 'DAILY SORT'),
               style: Palette.display(size: 38, spacing: 2).copyWith(
                 shadows: const [
                   Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
@@ -651,7 +702,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             const SizedBox(height: 2),
             Text(
               p.isPractice
-                  ? 'No limits. Just sort and breathe.'
+                  ? (_adventDoor != null
+                        ? 'Advent calendar · December $_adventDoor'
+                        : 'No limits. Just sort and breathe.')
                   : (g.archive
                         ? '#${p.number}  ·  ${dayLabel(p.day)}  ·  from the archive'
                         : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}'),
@@ -682,6 +735,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ],
             ),
             if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
+            if (!p.isPractice && !g.archive && adventSeason(DateTime.now())) ...[
+              const SizedBox(height: 8),
+              _AdventChip(onTap: _openAdvent),
+            ],
             const SizedBox(height: 8),
             Text(
               switch (g.status) {
@@ -737,7 +794,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: BoardView(
                             // A new look means new ball and glass images.
-                            key: ValueKey((g, Palette.dark, Palette.colorblind)),
+                            key: ValueKey((g, Palette.dark, Palette.ballsKey)),
                             game: g,
                             onWinAnimationDone: _onWin,
                             breathe: p.isPractice,
@@ -765,6 +822,31 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 }
 
 /// "Back to today" while replaying an archive puzzle.
+/// A small door to the advent calendar, in its season.
+class _AdventChip extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AdventChip({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => Squish(
+    child: Material(
+      color: Palette.card,
+      shape: StadiumBorder(side: BorderSide(color: Palette.line, width: 1.5)),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          child: Text(
+            '🎄  Advent calendar',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Palette.ink),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _TodayPill extends StatelessWidget {
   final VoidCallback onTap;
   const _TodayPill({required this.onTap});
@@ -1199,12 +1281,16 @@ class SettingsSheet extends StatefulWidget {
 
   /// A backup code was restored.
   final VoidCallback? onRestored;
+
+  /// Opens ball themes and the other extras.
+  final VoidCallback? onShop;
   const SettingsSheet({
     super.key,
     required this.storage,
     required this.appearance,
     required this.onChanged,
     this.onRestored,
+    this.onShop,
   });
 
   @override
@@ -1338,6 +1424,10 @@ class _SettingsSheetState extends State<SettingsSheet> {
           },
         ),
         Text('Easier-to-tell colors, and a shape on every ball.', style: _note),
+        if (widget.onShop != null) ...[
+          const SizedBox(height: 10),
+          SmallButton(label: 'Ball themes and extras', icon: Icons.palette_rounded, onTap: widget.onShop!),
+        ],
         Divider(height: 32, color: Palette.line),
         _heading('Sound'),
         Text(
@@ -1629,7 +1719,8 @@ class _BallChip extends StatelessWidget {
 class _BallChipPainter extends CustomPainter {
   final int color;
   final bool shape;
-  _BallChipPainter(this.color) : shape = Palette.colorblind;
+  final String key;
+  _BallChipPainter(this.color) : shape = Palette.colorblind, key = Palette.ballsKey;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1648,5 +1739,5 @@ class _BallChipPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BallChipPainter old) => old.color != color || old.shape != shape;
+  bool shouldRepaint(covariant _BallChipPainter old) => old.color != color || old.shape != shape || old.key != key;
 }

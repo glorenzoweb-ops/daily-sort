@@ -235,6 +235,16 @@ class Storage {
   String get theme => _prefs.getString('theme') ?? 'auto';
   Future<void> setTheme(String v) => _prefs.setString('theme', v);
 
+  /// Ball theme id (see `themes.dart`).
+  String get ballTheme => _prefs.getString('ballTheme') ?? 'candy';
+  Future<void> setBallTheme(String v) => _prefs.setString('ballTheme', v);
+
+  /// Advent calendar doors solved (1..24).
+  Set<int> get adventSolved => {...?_prefs.getStringList('adventSolved')?.map(int.parse)};
+  Future<void> addAdventSolved(int door) => _prefs.setStringList('adventSolved', [
+    ...{...adventSolved, door}.map((d) => '$d'),
+  ]);
+
   bool get colorblind => _prefs.getBool('colorblind') ?? false;
   Future<void> setColorblind(bool v) => _prefs.setBool('colorblind', v);
 
