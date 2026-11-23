@@ -133,7 +133,7 @@ class _ShopSheetState extends State<ShopSheet> {
           title: '24 winter puzzles',
           sub: premium.hasAdvent
               ? 'Yours. A new door opens every day, Dec 1 to 24.'
-              : 'A door a day, Dec 1 to 24, each with its own picture. Door 1 is free. '
+              : 'A cozy puzzle a day, Dec 1 to 24. Door 1 is free. '
                     '${premium.priceOf(adventPack)} once, or included with Plus.',
           action: 'Open',
           onTap: widget.onAdvent,

@@ -31,7 +31,7 @@ DailyPuzzle adventPuzzle(int n) => practicePuzzle(0xAD7E00 + n * 7919);
 bool adventDoorFree(int n) => n == 1;
 
 /// 24 doors, one a day in December. Each opens a cozy puzzle with its own
-/// picture.
+/// solve painting.
 class AdventSheet extends StatefulWidget {
   final PremiumService premium;
   final Storage storage;
@@ -101,7 +101,7 @@ class _AdventSheetState extends State<AdventSheet> {
         Text(
           started
               ? '${solved.length} of 24 opened · a new door every day until the 24th'
-              : 'Starts December 1. A door a day, each with a cozy puzzle and its own picture.',
+              : 'Starts December 1. A door a day, each with a cozy winter puzzle.',
           textAlign: TextAlign.center,
           style: note.copyWith(fontSize: 14),
         ),

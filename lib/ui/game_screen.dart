@@ -24,7 +24,6 @@ import '../services/share.dart';
 import 'advent.dart';
 import 'appearance.dart';
 import 'archive.dart';
-import 'picture.dart';
 import 'sheets.dart';
 import 'shop.dart';
 import 'social.dart';
@@ -448,7 +447,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Plays advent door [n] in Unwind: no move limit, its own picture.
+  /// Plays advent door [n] in Unwind: no move limit.
   Future<void> _playAdvent(int n) async {
     final puzzle = await runInBackground(() => adventPuzzle(n));
     if (!mounted) return;
@@ -764,46 +763,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ),
             ],
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, box) {
-                  // The picture takes the empty wall above the shelf, and
-                  // steps aside on short screens.
-                  final frameH = (box.maxHeight * 0.3).clamp(0.0, 150.0);
-                  return Column(
-                    children: [
-                      if (frameH >= 64)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: SizedBox(
-                            height: frameH,
-                            child: PictureFrame(
-                              key: ObjectKey(g),
-                              scene: p.isPractice ? sceneForBoard(p.start) : sceneForNumber(p.number),
-                              colored: completedColors(g.board),
-                              colors: p.colors,
-                              solved: g.status == GameStatus.won,
-                              caption: p.isPractice
-                                  ? 'Mystery picture'
-                                  : (g.archive ? 'Picture #${p.number}' : "Today's picture"),
-                              onTap: g.status == GameStatus.won ? () => _openResults() : null,
-                            ),
-                          ),
-                        ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: BoardView(
-                            // A new look means new ball and glass images.
-                            key: ValueKey((g, Palette.dark, Palette.ballsKey)),
-                            game: g,
-                            onWinAnimationDone: _onWin,
-                            breathe: p.isPractice,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+                child: BoardView(
+                  // A new look means new ball and glass images.
+                  key: ValueKey((g, Palette.dark, Palette.ballsKey)),
+                  game: g,
+                  onWinAnimationDone: _onWin,
+                  breathe: p.isPractice,
+                ),
               ),
             ),
             _BottomBar(

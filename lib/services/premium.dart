@@ -48,7 +48,7 @@ const themeJewel = Product('theme_jewel', ProductKind.theme, 'Jewel', r'$1.99');
 const themeNeon = Product('theme_neon', ProductKind.theme, 'Neon', r'$1.99');
 const themeProducts = [themePastel, themeJewel, themeNeon];
 
-/// The December advent calendar: 24 puzzles and pictures. Plus members get
+/// The December advent calendar: 24 winter puzzles. Plus members get
 /// it too.
 const adventPack = Product('advent_2026', ProductKind.advent, 'Advent calendar', r'$3.99');
 

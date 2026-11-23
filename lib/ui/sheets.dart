@@ -12,7 +12,6 @@ import '../services/storage.dart';
 import 'archive.dart';
 import 'history.dart';
 import 'palette.dart';
-import 'picture.dart';
 import 'social.dart';
 import 'solve_art.dart';
 import 'squish.dart';
@@ -228,7 +227,6 @@ class _ResultSheetState extends State<ResultSheet> {
     setState(() => _sharing = true);
     try {
       final png = await renderSolveCard(
-        scene: p.isPractice ? sceneForBoard(p.start) : sceneForNumber(p.number),
         pours: g.pours,
         tubeCount: p.start.tubeCount,
         title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
@@ -286,16 +284,6 @@ class _ResultSheetState extends State<ResultSheet> {
             '${g.movesUsed} moves · par ${g.puzzle.par}${g.attempts > 1 ? ' · ${ordinal(g.attempts)} try' : ''}',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16, color: Palette.inkSoft, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 150,
-            child: PictureFrame(
-              scene: g.puzzle.isPractice ? sceneForBoard(g.puzzle.start) : sceneForNumber(g.puzzle.number),
-              colored: const {0, 1, 2, 3, 4},
-              colors: g.puzzle.colors,
-              solved: true,
-            ),
           ),
           const SizedBox(height: 14),
           AspectRatio(
@@ -405,7 +393,7 @@ class _ResultSheetState extends State<ResultSheet> {
         ],
         // A gentle note, only once the player has enjoyed a few dailies.
         if (!widget.premium.isPremium && widget.storage.stats.solved >= solvesBeforePlusNote)
-          PlusBanner(text: 'Daily Sort+: every past puzzle and picture', onTap: widget.onPlus),
+          PlusBanner(text: 'Daily Sort+: every past puzzle, any time', onTap: widget.onPlus),
       ],
     );
   }

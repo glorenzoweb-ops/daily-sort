@@ -3,7 +3,6 @@ import 'package:daily_sort/game/game_controller.dart';
 import 'package:daily_sort/services/friends.dart';
 import 'package:daily_sort/services/premium.dart';
 import 'package:daily_sort/services/storage.dart';
-import 'package:daily_sort/ui/picture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -72,43 +71,6 @@ void main() {
       expect(storage.day(1)!.solved, isTrue);
       final s = storage.stats;
       expect([s.streak, s.lastSolvedNumber, s.solved], [4, 9, 4]);
-    });
-  });
-
-  group('picture of the day', () {
-    test('every scene has five drawable layers on the canvas (a little bleed past the edge is fine)', () {
-      expect(scenes.length, greaterThanOrEqualTo(8));
-      for (final s in scenes) {
-        expect(s.layers.length, 5, reason: s.title);
-        expect(s.order.toSet(), {0, 1, 2, 3, 4}, reason: s.title);
-        for (final l in s.layers) {
-          final b = l.getBounds();
-          expect(b.isEmpty, isFalse, reason: s.title);
-          expect(
-            b.left >= -10 && b.top >= -10 && b.right <= sceneW + 10 && b.bottom <= sceneH + 10,
-            isTrue,
-            reason: s.title,
-          );
-        }
-      }
-    });
-
-    test('same picture for everyone, never the same two days running', () {
-      for (var n = 1; n < 60; n++) {
-        expect(sceneForNumber(n), same(sceneForNumber(n)));
-        expect(sceneForNumber(n), isNot(same(sceneForNumber(n + 1))));
-      }
-      expect({for (var n = 1; n <= scenes.length; n++) sceneForNumber(n)}.length, scenes.length);
-    });
-
-    test('a layer colors in when its tube is complete', () {
-      final p = puzzleForDay(dayForNumber(1));
-      var b = p.start;
-      expect(completedColors(b), isEmpty);
-      for (final m in p.solution) {
-        b = b.apply(m);
-      }
-      expect(completedColors(b), {for (var c = 0; c < p.colors; c++) c});
     });
   });
 }
