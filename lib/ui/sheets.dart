@@ -23,6 +23,8 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
+    // Tall sheets (settings) stop below the status bar, notch and Dynamic Island.
+    useSafeArea: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0x55241A10),
     sheetAnimationStyle: const AnimationStyle(
