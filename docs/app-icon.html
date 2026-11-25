@@ -1,0 +1,43 @@
+<html><body style="margin:0"><canvas id=c width=1024 height=1024></canvas><script>
+const c=document.getElementById('c').getContext('2d');
+const S=1024;
+// warm background
+let g=c.createLinearGradient(0,0,0,S); g.addColorStop(0,'#FFE3B8'); g.addColorStop(0.55,'#FFC98A'); g.addColorStop(1,'#FF9E6B');
+c.fillStyle=g; c.fillRect(0,0,S,S);
+// soft sun glow
+g=c.createRadialGradient(300,260,0,300,260,560); g.addColorStop(0,'rgba(255,255,240,0.65)'); g.addColorStop(1,'rgba(255,255,240,0)');
+c.fillStyle=g; c.fillRect(0,0,S,S);
+c.save(); c.translate(S/2,S/2+20); c.rotate(-0.21);
+const W=300,H=760,R=W/2,x=-W/2,y=-H/2;
+function tube(){c.beginPath();c.moveTo(x,y+30);c.lineTo(x,y+H-R);c.arc(0,y+H-R,R,Math.PI,0,true);c.lineTo(x+W,y+30);c.quadraticCurveTo(x+W,y,x+W-30,y);c.lineTo(x+30,y);c.quadraticCurveTo(x,y,x,y+30);c.closePath();}
+// shadow
+c.save(); c.shadowColor='rgba(120,50,10,0.35)'; c.shadowBlur=60; c.shadowOffsetY=30; tube(); c.fillStyle='rgba(255,255,255,0.35)'; c.fill(); c.restore();
+// glass interior
+tube(); g=c.createLinearGradient(x,0,x+W,0); g.addColorStop(0,'rgba(170,200,220,0.55)'); g.addColorStop(0.3,'rgba(255,255,255,0.7)'); g.addColorStop(0.7,'rgba(255,255,255,0.55)'); g.addColorStop(1,'rgba(160,190,215,0.6)'); c.fillStyle=g; c.fill();
+// balls
+const cols=[['#FF5A7A','#C42D4E'],['#FFC23F','#D9921A'],['#2EC4A0','#178C70']];
+const br=118;
+cols.forEach((cc,i)=>{const cy=y+H-R-8-i*(br*2+12); const cx=0;
+ let bg=c.createRadialGradient(cx-br*0.35,cy-br*0.4,br*0.1,cx,cy,br*1.05); bg.addColorStop(0,'#fff'); bg.addColorStop(0.18,cc[0]); bg.addColorStop(0.75,cc[0]); bg.addColorStop(1,cc[1]);
+ c.beginPath(); c.arc(cx,cy,br,0,Math.PI*2); c.fillStyle=bg; c.fill();
+ // face
+ c.fillStyle='#2B2440';
+ c.beginPath(); c.ellipse(cx-br*0.32,cy-br*0.02,br*0.1,br*0.14,0,0,Math.PI*2); c.fill();
+ c.beginPath(); c.ellipse(cx+br*0.32,cy-br*0.02,br*0.1,br*0.14,0,0,Math.PI*2); c.fill();
+ c.fillStyle='#fff'; c.beginPath(); c.arc(cx-br*0.29,cy-br*0.08,br*0.04,0,7); c.fill(); c.beginPath(); c.arc(cx+br*0.35,cy-br*0.08,br*0.04,0,7); c.fill();
+ c.strokeStyle='#2B2440'; c.lineWidth=br*0.07; c.lineCap='round'; c.beginPath(); c.arc(cx,cy+br*0.18,br*0.2,0.15*Math.PI,0.85*Math.PI); c.stroke();
+ c.fillStyle='rgba(255,140,150,0.45)'; c.beginPath(); c.ellipse(cx-br*0.55,cy+br*0.2,br*0.13,br*0.08,0,0,7); c.fill(); c.beginPath(); c.ellipse(cx+br*0.55,cy+br*0.2,br*0.13,br*0.08,0,0,7); c.fill();
+});
+// glass rim + highlights
+tube(); c.lineWidth=22; c.strokeStyle='rgba(255,255,255,0.9)'; c.stroke();
+tube(); c.lineWidth=6; c.strokeStyle='rgba(120,150,175,0.5)'; c.stroke();
+c.fillStyle='rgba(255,255,255,0.75)'; c.beginPath(); c.roundRect(x+38,y+70,34,H-260,17); c.fill();
+c.fillStyle='rgba(255,255,255,0.4)'; c.beginPath(); c.roundRect(x+W-62,y+90,18,H-380,9); c.fill();
+// lip
+c.fillStyle='rgba(255,255,255,0.95)'; c.beginPath(); c.roundRect(x-22,y-14,W+44,44,22); c.fill();
+c.strokeStyle='rgba(120,150,175,0.45)'; c.lineWidth=5; c.stroke();
+c.restore();
+// sparkles
+function sp(px,py,s){c.fillStyle='#fff';c.beginPath();c.moveTo(px,py-s);c.quadraticCurveTo(px,py,px+s,py);c.quadraticCurveTo(px,py,px,py+s);c.quadraticCurveTo(px,py,px-s,py);c.quadraticCurveTo(px,py,px,py-s);c.fill();}
+sp(800,250,46); sp(860,360,24); sp(205,780,30);
+</script></body></html>

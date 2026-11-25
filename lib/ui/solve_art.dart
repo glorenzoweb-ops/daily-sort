@@ -87,6 +87,22 @@ class SolveArtPainter extends CustomPainter {
           ..color = Colors.white.withValues(alpha: 0.5),
       );
       if (part >= 1 && p.completedTube) _sparkle(canvas, b, base * 3.2, color);
+      // The brush: a glowing tip leads the stroke that is being painted.
+      if (part < 1) {
+        for (final m in path.computeMetrics()) {
+          final tip = m.getTangentForOffset(m.length * part)?.position;
+          if (tip == null) continue;
+          canvas.drawCircle(
+            tip,
+            width * 2.4,
+            Paint()
+              ..shader = RadialGradient(
+                colors: [Colors.white.withValues(alpha: 0.9), color.withValues(alpha: 0.5), color.withValues(alpha: 0)],
+                stops: const [0, 0.35, 1],
+              ).createShader(Rect.fromCircle(center: tip, radius: width * 2.4)),
+          );
+        }
+      }
     }
 
     // Tube nodes, colored by what ended up in them so far.
@@ -136,7 +152,14 @@ class SolveArtPlayer extends StatefulWidget {
   final List<PourInfo> pours;
   final int tubeCount;
   final bool autoplay;
-  const SolveArtPlayer({super.key, required this.pours, required this.tubeCount, this.autoplay = true});
+  final Duration startDelay;
+  const SolveArtPlayer({
+    super.key,
+    required this.pours,
+    required this.tubeCount,
+    this.autoplay = true,
+    this.startDelay = const Duration(milliseconds: 350),
+  });
 
   @override
   State<SolveArtPlayer> createState() => SolveArtPlayerState();
@@ -158,7 +181,8 @@ class SolveArtPlayerState extends State<SolveArtPlayer> with SingleTickerProvide
       if (s == AnimationStatus.completed) Sounds.win();
     });
     if (widget.autoplay) {
-      Future<void>.delayed(const Duration(milliseconds: 350), () {
+      // Starts once the stars have landed, so their notes don't overlap.
+      Future<void>.delayed(widget.startDelay, () {
         if (mounted) play();
       });
     } else {
