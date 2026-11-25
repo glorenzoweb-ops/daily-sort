@@ -17,13 +17,19 @@ void main() {
     }
   }
 
-  testWidgets('app boots, shows today, and switches to Unwind and back', (tester) async {
+  testWidgets('app opens on the menu, plays today, switches to Unwind and back', (tester) async {
     GoogleFonts.config.allowRuntimeFetching = false; // fonts are bundled
     SharedPreferences.setMockInitialValues({'seenHowTo': true});
     final storage = await Storage.open();
     await tester.pumpWidget(
       DailySortApp(storage: storage, premium: ComingSoonPremium(), appearance: Appearance(storage)),
     );
+    await settle(tester);
+    // The opening menu: the logo (one label), today's card and Play.
+    expect(find.bySemanticsLabel('Daily Sort'), findsOneWidget);
+    expect(find.text('Play'), findsOneWidget);
+    expect(find.text('MOVES  '), findsNothing);
+    await tester.tap(find.text('Play'));
     await settle(tester);
     expect(find.text('DAILY SORT'), findsOneWidget);
     expect(find.text('MOVES  '), findsOneWidget);

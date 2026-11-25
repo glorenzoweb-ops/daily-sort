@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/analytics.dart';
 import '../services/feedback.dart';
 import '../services/friends.dart';
 import '../services/premium.dart';
@@ -258,6 +259,7 @@ class _ResultSheetState extends State<ResultSheet> {
     setState(() => _sharing = true);
     try {
       final png = await (_png ??= _render());
+      Analytics.send('Result.shared', {'puzzle': p.number});
       final r = await shareImage(png, 'daily-sort-${p.isPractice ? 'practice' : p.number}.png', _text());
       _toast(r);
     } finally {

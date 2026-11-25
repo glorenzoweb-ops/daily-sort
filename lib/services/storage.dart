@@ -204,6 +204,37 @@ class Storage {
   bool get seenHowTo => _prefs.getBool('seenHowTo') ?? false;
   Future<void> setSeenHowTo() => _prefs.setBool('seenHowTo', true);
 
+  /// The daily reminder (off until the player turns it on).
+  bool get dailyReminder => _prefs.getBool('dailyReminder') ?? false;
+  Future<void> setDailyReminder(bool v) => _prefs.setBool('dailyReminder', v);
+
+  /// Whether we already offered the daily reminder after a solve.
+  bool get offeredReminder => _prefs.getBool('offeredReminder') ?? false;
+  Future<void> setOfferedReminder() => _prefs.setBool('offeredReminder', true);
+
+  /// Minutes after midnight of the last daily solves, newest last (at most 7).
+  List<int> get playMinutes => [...?_prefs.getStringList('playMinutes')?.map(int.parse)];
+  Future<void> addPlayMinute(int m) {
+    final all = [...playMinutes, m];
+    return _prefs.setStringList('playMinutes', [for (final x in all.skip(all.length > 7 ? all.length - 7 : 0)) '$x']);
+  }
+
+  /// The App Store rating prompt was shown (it is asked once, ever).
+  bool get askedReview => _prefs.getBool('askedReview') ?? false;
+  Future<void> setAskedReview() => _prefs.setBool('askedReview', true);
+
+  /// Anonymous usage counts (TelemetryDeck). On unless the player turns it off.
+  bool get analyticsOn => _prefs.getBool('analytics') ?? true;
+  Future<void> setAnalytics(bool v) => _prefs.setBool('analytics', v);
+
+  /// A random id for this install, hashed before it is sent anywhere.
+  String get installId => _prefs.getString('installId') ?? '';
+  Future<void> setInstallId(String v) => _prefs.setString('installId', v);
+
+  /// When the iCloud copy was last written by this device (ms since epoch).
+  int get cloudSavedAt => _prefs.getInt('cloudSavedAt') ?? 0;
+  Future<void> setCloudSavedAt(int v) => _prefs.setInt('cloudSavedAt', v);
+
   int get practiceSolved => _prefs.getInt('practiceSolved') ?? 0;
   Future<void> addPracticeSolve() => _prefs.setInt('practiceSolved', practiceSolved + 1);
 

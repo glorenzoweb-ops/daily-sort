@@ -4,4 +4,5 @@
 /// to a server. On the web it does nothing.
 library;
 
+export 'reminder_time.dart';
 export 'reminders_native.dart' if (dart.library.js_interop) 'reminders_web.dart';

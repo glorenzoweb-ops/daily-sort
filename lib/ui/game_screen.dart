@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:in_app_review/in_app_review.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/analytics.dart';
 import '../services/background.dart';
+import '../services/cloud_sync.dart';
 import '../services/backup.dart';
 import '../services/feedback.dart';
 import '../services/premium.dart';
@@ -12,6 +16,7 @@ import '../services/sound/ambience.dart';
 import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
+import 'home.dart';
 import 'motion.dart';
 import 'perf.dart';
 import 'palette.dart';
@@ -22,6 +27,7 @@ import '../services/friends.dart';
 import '../services/link.dart';
 import '../services/puzzles.dart';
 import '../services/reactions.dart';
+import '../services/reminders.dart';
 import '../services/share.dart';
 import 'advent.dart';
 import 'appearance.dart';
@@ -30,6 +36,7 @@ import 'sheets.dart';
 import 'shop.dart';
 import 'social.dart';
 import 'streak.dart';
+import 'tutorial.dart';
 import 'warmup.dart';
 
 class GameScreen extends StatefulWidget {
@@ -63,6 +70,47 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// you go back to today.
   GameController? _archive;
   bool _inUnwind = false;
+
+  /// The opening menu shows first; Play (or any way into a puzzle) leaves it.
+  /// A friend's result link goes straight to the board.
+  late bool _home = widget.incomingResult == null;
+
+  /// The guided first puzzle is on screen.
+  bool _tutorial = false;
+
+  void _tutorialDone() {
+    widget.storage.setSeenHowTo();
+    setState(() => _tutorial = false);
+  }
+
+  void _leaveHome() {
+    if (_home) setState(() => _home = false);
+  }
+
+  void _goHome() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    setState(() => _home = true);
+  }
+
+  /// Play from the menu: today's board (or its result, once solved). The very
+  /// first time, how to play comes first.
+  Future<void> _playFromHome() async {
+    final d = _daily;
+    if (d == null) return;
+    setState(() {
+      _home = false;
+      _inUnwind = false;
+      _archive?.dispose();
+      _archive = null;
+    });
+    if (!widget.storage.seenHowTo) {
+      // First time: the guided puzzle teaches the rules by playing.
+      setState(() => _tutorial = true);
+    } else if (d.status == GameStatus.won) {
+      _openResults();
+    }
+  }
+
   late final Puzzles _puzzles = Puzzles(widget.storage);
   late final Friends _friends = Friends(widget.storage);
   late final Reactions _reactions = Reactions(widget.storage);
@@ -123,7 +171,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     // Get an Unwind puzzle ready while the player looks at today's board.
     Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
     final fromFriend = await _takeIncoming(puzzle.number);
-    if (!widget.storage.seenHowTo) {
+    if (!widget.storage.seenHowTo && !_home) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
       widget.storage.setSeenHowTo();
@@ -251,6 +299,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       from: name.isEmpty ? 'A friend' : name,
       myResult: mine,
     );
+    Analytics.send('Reaction.sent');
     final r = await shareResult(text);
     if (r == ShareOutcome.failed) return;
     await _reactions.markSent(friend.name, today, emoji, today: today);
@@ -307,6 +356,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       text =
           'I\'m playing Daily Sort: one cozy color puzzle a day, same for everyone. Play today\'s with me: $shareUrl';
     }
+    Analytics.send('Friends.invited');
     final r = await shareResult(text);
     if (r == ShareOutcome.copied && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -352,14 +402,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _openPaywall({bool reopenArchive = true}) async {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    Analytics.send('Paywall.shown');
     final ok = await showCozySheet<bool>(context, PaywallSheet(premium: widget.premium, storage: widget.storage));
     if (ok == true && mounted) {
+      Analytics.send('Plus.bought');
       setState(() {});
       if (reopenArchive) _openArchive();
     }
   }
 
   Future<void> _playArchive(int number) async {
+    _leaveHome();
     if (number == _today) {
       _setMode(false);
       return;
@@ -404,6 +457,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Daily ⇄ Unwind. Each keeps its board exactly as you left it.
   void _setMode(bool unwind) {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    _leaveHome();
     if (!unwind && !_inUnwind && _archive != null) _backToToday();
     if (unwind == _inUnwind) return;
     setState(() => _inUnwind = unwind);
@@ -454,6 +508,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final puzzle = await runInBackground(() => adventPuzzle(n));
     if (!mounted) return;
     setState(() {
+      _home = false;
       _inUnwind = true;
       _unwind?.dispose();
       _unwind = GameController(puzzle, widget.storage);
@@ -486,6 +541,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     } else {
       Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchAhead(DateTime.now()));
     }
+    final won = _game;
+    final freshDaily = won != null && !won.puzzle.isPractice && !won.archive;
+    if (freshDaily) {
+      // Today is done: no reminder today, and iCloud gets the new streak.
+      DailyReminder.reschedule(widget.storage);
+      CloudSync.push(widget.storage);
+    }
     Future<void>.delayed(const Duration(milliseconds: 700), () async {
       if (!mounted) return;
       final g = _game;
@@ -498,8 +560,53 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         await showStreakMilestone(context, g.streakAfter);
         if (!mounted) return;
       }
-      _openResults();
+      await _openResults();
+      if (mounted && freshDaily && identical(g, won)) _afterDailyResults(won);
     });
+  }
+
+  /// Once the result sheet of today's solve is closed: maybe ask for a
+  /// rating (once, after the 5th perfect solve), or offer the reminder
+  /// (once, from the 2nd solve).
+  Future<void> _afterDailyResults(GameController g) async {
+    final s = widget.storage;
+    if (kIsWeb) return;
+    if (g.stars == 3 && (s.stats.stars[3] ?? 0) >= 5 && !s.askedReview) {
+      await s.setAskedReview();
+      try {
+        final review = InAppReview.instance;
+        if (await review.isAvailable()) {
+          Analytics.send('Review.asked');
+          await review.requestReview();
+        }
+      } catch (_) {}
+      return;
+    }
+    if (s.stats.solved >= 2 && !s.dailyReminder && !s.offeredReminder) {
+      await s.setOfferedReminder();
+      if (!mounted) return;
+      final at = TimeOfDay(hour: reminderMinute(s.playMinutes) ~/ 60, minute: reminderMinute(s.playMinutes) % 60);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.navy,
+          duration: const Duration(seconds: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Text(
+            'Want a nudge tomorrow around ${at.format(context)}?',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+          action: SnackBarAction(
+            label: 'Remind me',
+            textColor: Palette.gold,
+            onPressed: () async {
+              final ok = await DailyReminder.enable(s);
+              Analytics.send('Reminder.on', {'from': 'offer', 'allowed': ok});
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _toastTravel(int streak) {
@@ -610,10 +717,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _openResults({bool statsOnly = false}) {
+  Future<void> _openResults({bool statsOnly = false}) async {
     final g = _game;
     if (g == null) return;
-    showCozySheet(
+    await showCozySheet(
       context,
       ResultSheet(
         game: g,
@@ -643,7 +750,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: g == null || (_loadingArchive && !_inUnwind)
+                child: _tutorial
+                    ? TutorialView(storage: widget.storage, onDone: _tutorialDone)
+                    : _home
+                    ? HomeView(
+                        storage: widget.storage,
+                        daily: _daily,
+                        onPlay: _playFromHome,
+                        onUnwind: () => _setMode(true),
+                        onArchive: _openArchive,
+                        onExtras: _openShop,
+                        onStats: () => _openResults(statsOnly: _daily?.status != GameStatus.won),
+                        onSettings: _openSettings,
+                        onHowTo: () => showCozySheet(context, const HowToSheet()),
+                        onStreak: _openStreak,
+                      )
+                    : g == null || (_loadingArchive && !_inUnwind)
                     ? _Loading(unwind: _inUnwind, onBack: _daily == null ? null : () => _setMode(false))
                     : _buildGame(g),
               ),
@@ -671,11 +793,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 children: [
                   Row(
                     children: [
-                      _IconBtn(
-                        Icons.help_outline_rounded,
-                        'How to play',
-                        () => showCozySheet(context, const HowToSheet()),
-                      ),
+                      _IconBtn(Icons.home_rounded, 'Menu', _goHome),
                       _IconBtn(Icons.tune_rounded, 'Settings', _openSettings),
                       const Spacer(),
                       _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
@@ -1322,6 +1440,31 @@ class _SettingsSheetState extends State<SettingsSheet> {
     );
   }
 
+  Widget _reminderSwitch() {
+    final m = reminderMinute(widget.storage.playMinutes);
+    final at = TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
+    return _switch('Daily reminder', 'A nudge around $at, when you usually play', widget.storage.dailyReminder, (
+      v,
+    ) async {
+      if (v) {
+        final ok = await DailyReminder.enable(widget.storage);
+        Analytics.send('Reminder.on', {'from': 'settings', 'allowed': ok});
+        if (!ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text('Notifications are off for Daily Sort. Turn them on in the phone\'s Settings.'),
+            ),
+          );
+        }
+      } else {
+        await DailyReminder.disable(widget.storage);
+        Analytics.send('Reminder.off');
+      }
+      if (mounted) setState(() {});
+    });
+  }
+
   Widget _heading(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 6),
     child: Text(text, textAlign: TextAlign.center, style: Palette.display(size: 22)),
@@ -1457,6 +1600,21 @@ class _SettingsSheetState extends State<SettingsSheet> {
           plainShareOn(context, widget.storage),
           widget.storage.setPlainShare,
         ),
+        if (!kIsWeb) _reminderSwitch(),
+        if (!kIsWeb)
+          _switch(
+            'Help improve Daily Sort',
+            'Send anonymous counts, like how many solve today\'s puzzle. Never your name or what you type.',
+            widget.storage.analyticsOn,
+            (v) {
+              if (!v) {
+                Analytics.send('Analytics.off');
+                Analytics.flush();
+                Analytics.stopped();
+              }
+              widget.storage.setAnalytics(v);
+            },
+          ),
         Divider(height: 32, color: Palette.line),
         _heading('New phone?'),
         Text(
