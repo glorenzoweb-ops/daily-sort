@@ -62,10 +62,12 @@ Once there are past subscribers: Subscriptions → Daily Sort+ Yearly → **Win-
 ## 5. Build with payments on
 
 ```
-flutter build ipa --dart-define=RC_IOS_KEY=appl_xxxxxxxx
+flutter build ipa --obfuscate --split-debug-info=build/symbols
 ```
 
-Without the key, the app still works and shows "coming soon" on the paywall, which is what the web version does.
+The public RevenueCat key is built in (`lib/services/premium_revenuecat.dart`); `--dart-define=RC_IOS_KEY=...` still overrides it. `--obfuscate --split-debug-info` makes the app a few MB smaller. Keep `build/symbols`: it turns crash reports back into readable code.
+
+The web version has no store and shows "coming soon" on the paywall.
 
 To try everything without the store (screenshots, demos), use `--dart-define=FAKE_STORE=true`: every purchase goes through at once.
 

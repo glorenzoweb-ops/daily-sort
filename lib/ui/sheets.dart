@@ -9,6 +9,7 @@ import '../services/friends.dart';
 import '../services/premium.dart';
 import '../services/share.dart';
 import '../services/storage.dart';
+import 'ambient_clock.dart';
 import 'archive.dart';
 import 'history.dart';
 import 'palette.dart';
@@ -20,6 +21,8 @@ import 'streak.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
+  // The board behind the sheet stops its idle animation while it's covered.
+  AmbientClock.instance.hold();
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
@@ -65,7 +68,7 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
         ),
       ),
     ),
-  );
+  ).whenComplete(AmbientClock.instance.release);
 }
 
 class SheetTitle extends StatelessWidget {
@@ -171,6 +174,29 @@ class _ResultSheetState extends State<ResultSheet> {
     super.initState();
     _tick();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    // Paint the share image quietly once the sheet has settled, so tapping
+    // Share opens the share screen at once.
+    if (widget.showResult && widget.game.status == GameStatus.won) {
+      Future<void>.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) _png ??= _render();
+      });
+    }
+  }
+
+  Future<Uint8List>? _png;
+
+  Future<Uint8List> _render() {
+    final g = widget.game;
+    final p = g.puzzle;
+    return renderSolveCard(
+      pours: g.pours,
+      tubeCount: p.start.tubeCount,
+      title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
+      subtitle: '${g.movesUsed} moves · par ${p.par}${p.isPractice ? '' : ' · ${dayLabel(p.day)}'}',
+      stars: g.stars,
+      footer: shareUrl.replaceFirst('https://', '').replaceAll(RegExp(r'/$'), ''),
+      fontFamily: GoogleFonts.nunito().fontFamily,
+    );
   }
 
   void _tick() {
@@ -228,15 +254,7 @@ class _ResultSheetState extends State<ResultSheet> {
     if (!mounted) return;
     setState(() => _sharing = true);
     try {
-      final png = await renderSolveCard(
-        pours: g.pours,
-        tubeCount: p.start.tubeCount,
-        title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
-        subtitle: '${g.movesUsed} moves · par ${p.par}${p.isPractice ? '' : ' · ${dayLabel(p.day)}'}',
-        stars: g.stars,
-        footer: shareUrl.replaceFirst('https://', '').replaceAll(RegExp(r'/$'), ''),
-        fontFamily: GoogleFonts.nunito().fontFamily,
-      );
+      final png = await (_png ??= _render());
       final r = await shareImage(png, 'daily-sort-${p.isPractice ? 'practice' : p.number}.png', _text());
       _toast(r);
     } finally {

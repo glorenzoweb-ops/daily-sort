@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'background.dart';
 import 'sound/ambience.dart';
+import 'sound/cache.dart';
 import 'sound/engine.dart';
 import 'sound/engine_native.dart' if (dart.library.js_interop) 'sound/engine_web.dart';
 import 'sound/music.dart';
@@ -77,14 +78,17 @@ class Sounds {
   static Future<void> init() async {
     try {
       final e = createEngine();
-      await e.load(await runInBackground(() => [for (final f in scale) pluck(f)]));
-      await e.load(await runInBackground(() => [for (final f in _clinkFreqs) synthClink(f)]));
+      // After the first launch every sound comes from disk.
+      Future<Float32List> make(String key, Float32List Function() synth) =>
+          cachedSamples(key, () => runInBackground(synth));
+      await e.load([for (final (i, f) in scale.indexed) await make('note$i', () => pluck(f))]);
+      await e.load([for (final (i, f) in _clinkFreqs.indexed) await make('clink$i', () => synthClink(f))]);
       _engine = e;
       for (var v = 0; v < _chimes; v++) {
-        await e.load([await runInBackground(() => synthChime(v))]);
+        await e.load([await make('chime$v', () => synthChime(v))]);
       }
-      await e.load([await runInBackground(synthBirdsong)]);
-      await e.load([await runInBackground(synthPop)]);
+      await e.load([await make('birds', synthBirdsong)]);
+      await e.load([await make('pop', synthPop)]);
       await _prepareAmbience(ambience);
       if (music) await _preparePad();
     } catch (_) {
@@ -94,16 +98,17 @@ class Sounds {
 
   static Future<Float32List?> _prepareAmbience(Ambience a) async {
     if (a == Ambience.off) return null;
-    return _loops[a] ??= await runInBackground(() => synthAmbience(a));
+    return _loops[a] ??= await cachedSamples('ambience_${a.name}', () => runInBackground(() => synthAmbience(a)));
   }
 
   static Future<Float32List>? _padJob;
   static Future<Float32List> _preparePad() async {
     final ready = _pad;
     if (ready != null) return ready;
-    return _pad = await (_padJob ??= hasBackgroundThread
-        ? runInBackground(() => synthPadAsync())
-        : synthPadAsync(breathe));
+    return _pad = await (_padJob ??= cachedSamples(
+      'pad',
+      () => hasBackgroundThread ? runInBackground(() => synthPadAsync()) : synthPadAsync(breathe),
+    ));
   }
 
   /// The note a pour plays: its color, raised by how high it lands.
