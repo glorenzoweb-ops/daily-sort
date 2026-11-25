@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../services/analytics.dart';
 import '../services/storage.dart';
 import 'board.dart';
 import 'daily.dart';
@@ -65,7 +66,10 @@ class GameController extends ChangeNotifier {
   /// touches the streak or the stats.
   final bool archive;
 
-  GameController(this.puzzle, this.storage, {this.archive = false}) {
+  /// The guided first puzzle: never saved, never counted.
+  final bool tutorial;
+
+  GameController(this.puzzle, this.storage, {this.archive = false, this.tutorial = false}) {
     board = puzzle.start;
     if (puzzle.isPractice) return; // practice is never saved
     _record = storage.day(puzzle.number);
@@ -233,6 +237,7 @@ class GameController extends ChangeNotifier {
     } else if (!puzzle.isPractice && history.length >= puzzle.moveLimit) {
       // Unwind (practice) puzzles have no move limit: you can't fail.
       status = GameStatus.outOfMoves;
+      if (!tutorial) Analytics.send('Daily.outOfMoves', {'puzzle': puzzle.number, 'archive': archive});
     } else {
       status = GameStatus.playing;
     }
@@ -267,11 +272,13 @@ class GameController extends ChangeNotifier {
   int streakBefore = 0, streakAfter = 0;
 
   void _recordWin() {
+    if (tutorial) return;
     if (puzzle.isPractice) {
       storage.addPracticeSolve();
       final s = storage.stats;
       earnedFreeze = s.addUnwindSolve();
       storage.saveStats(s);
+      Analytics.send('Unwind.solved', {'moves': history.length});
       return;
     }
     final r = _record ??= DayRecord();
@@ -284,7 +291,10 @@ class GameController extends ChangeNotifier {
       ..attempts = attempts
       ..moves = List.of(history);
     storage.saveDay(puzzle.number, r);
-    if (archive) return;
+    if (archive) {
+      Analytics.send('Archive.solved', {'puzzle': puzzle.number, 'stars': starsFor(history.length, puzzle.par)});
+      return;
+    }
 
     final s = storage.stats;
     streakBefore = s.currentStreak(puzzle.number);
@@ -293,5 +303,15 @@ class GameController extends ChangeNotifier {
     final st = starsFor(history.length, puzzle.par);
     s.stars[st] = (s.stars[st] ?? 0) + 1;
     storage.saveStats(s);
+    final now = DateTime.now();
+    storage.addPlayMinute(now.hour * 60 + now.minute);
+    Analytics.send('Daily.solved', {
+      'puzzle': puzzle.number,
+      'stars': st,
+      'overPar': history.length - puzzle.par,
+      'attempts': attempts,
+      'streak': streakAfter,
+      'hour': now.hour,
+    });
   }
 }

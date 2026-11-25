@@ -2,10 +2,13 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'services/analytics.dart';
+import 'services/cloud_sync.dart';
 import 'services/comfort.dart';
 import 'services/link.dart';
 import 'services/premium.dart';
 import 'services/premium_revenuecat.dart';
+import 'services/reminders.dart';
 import 'services/sound.dart';
 import 'services/storage.dart';
 import 'ui/appearance.dart';
@@ -19,7 +22,11 @@ Future<void> main() async {
   GoogleFonts.config.allowRuntimeFetching = false;
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final storage = await Storage.open();
+  // A new iPhone or a reinstall: bring the streak back from iCloud.
+  final fromCloud = await CloudSync.restoreIfNew(storage);
   applySoundAndHaptics(storage);
+  Analytics.start(storage); // never awaited
+  DailyReminder.reschedule(storage); // never awaited
   final premium = _premium();
   final appearance = Appearance(storage)..owns = premium.ownsTheme;
   // A purchase or a lapsed subscription can change which theme shows.
@@ -28,7 +35,13 @@ Future<void> main() async {
   // Sounds are built after the first frame, so the board shows first.
   WidgetsBinding.instance.addPostFrameCallback((_) => Sounds.init()); // never awaited
   runApp(
-    DailySortApp(storage: storage, premium: premium, appearance: appearance, incomingResult: incomingResultParam()),
+    DailySortApp(
+      storage: storage,
+      premium: premium,
+      appearance: appearance,
+      incomingResult: incomingResultParam(),
+      restoredFromCloud: fromCloud,
+    ),
   );
 }
 
@@ -50,12 +63,16 @@ class DailySortApp extends StatefulWidget {
 
   /// A friend's result from the link that opened the app (`?r=...`).
   final String? incomingResult;
+
+  /// The streak and stats just came back from iCloud (say so once).
+  final bool restoredFromCloud;
   const DailySortApp({
     super.key,
     required this.storage,
     required this.premium,
     required this.appearance,
     this.incomingResult,
+    this.restoredFromCloud = false,
   });
 
   @override
@@ -68,6 +85,44 @@ class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.appearance.addListener(_changed);
+    if (widget.restoredFromCloud) WidgetsBinding.instance.addPostFrameCallback((_) => _toastCloud());
+  }
+
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
+  DateTime? _leftAt;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _leftAt = DateTime.now();
+      Analytics.flush();
+      CloudSync.push(widget.storage);
+    } else if (state == AppLifecycleState.resumed) {
+      final left = _leftAt;
+      if (left != null && DateTime.now().difference(left) > const Duration(minutes: 5)) Analytics.newSession();
+      DailyReminder.reschedule(widget.storage);
+      _checkCloud();
+    }
+  }
+
+  /// iCloud can arrive a little after the first launch on a new phone.
+  Future<void> _checkCloud() async {
+    if (await CloudSync.restoreIfNew(widget.storage) && mounted) {
+      _restored();
+      _toastCloud();
+    }
+  }
+
+  void _toastCloud() {
+    final s = widget.storage.stats;
+    _messenger.currentState?.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          'Welcome back! Your ${s.solved} solves${s.streak > 0 ? ' and your ${s.streak}-day streak' : ''} came back from iCloud.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -123,6 +178,7 @@ class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver
       valueListenable: showPerformance,
       builder: (context, perf, _) => MaterialApp(
         title: 'Daily Sort',
+        scaffoldMessengerKey: _messenger,
         showPerformanceOverlay: perf,
         debugShowCheckedModeBanner: false,
         theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),

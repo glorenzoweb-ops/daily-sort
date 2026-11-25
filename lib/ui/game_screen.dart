@@ -1,9 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:in_app_review/in_app_review.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/analytics.dart';
 import '../services/background.dart';
+import '../services/cloud_sync.dart';
 import '../services/backup.dart';
 import '../services/feedback.dart';
 import '../services/premium.dart';
@@ -23,6 +27,7 @@ import '../services/friends.dart';
 import '../services/link.dart';
 import '../services/puzzles.dart';
 import '../services/reactions.dart';
+import '../services/reminders.dart';
 import '../services/share.dart';
 import 'advent.dart';
 import 'appearance.dart';
@@ -31,6 +36,7 @@ import 'sheets.dart';
 import 'shop.dart';
 import 'social.dart';
 import 'streak.dart';
+import 'tutorial.dart';
 import 'warmup.dart';
 
 class GameScreen extends StatefulWidget {
@@ -69,6 +75,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// A friend's result link goes straight to the board.
   late bool _home = widget.incomingResult == null;
 
+  /// The guided first puzzle is on screen.
+  bool _tutorial = false;
+
+  void _tutorialDone() {
+    widget.storage.setSeenHowTo();
+    setState(() => _tutorial = false);
+  }
+
   void _leaveHome() {
     if (_home) setState(() => _home = false);
   }
@@ -90,8 +104,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _archive = null;
     });
     if (!widget.storage.seenHowTo) {
-      widget.storage.setSeenHowTo();
-      await showCozySheet(context, const HowToSheet());
+      // First time: the guided puzzle teaches the rules by playing.
+      setState(() => _tutorial = true);
     } else if (d.status == GameStatus.won) {
       _openResults();
     }
@@ -285,6 +299,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       from: name.isEmpty ? 'A friend' : name,
       myResult: mine,
     );
+    Analytics.send('Reaction.sent');
     final r = await shareResult(text);
     if (r == ShareOutcome.failed) return;
     await _reactions.markSent(friend.name, today, emoji, today: today);
@@ -341,6 +356,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       text =
           'I\'m playing Daily Sort: one cozy color puzzle a day, same for everyone. Play today\'s with me: $shareUrl';
     }
+    Analytics.send('Friends.invited');
     final r = await shareResult(text);
     if (r == ShareOutcome.copied && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -386,8 +402,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _openPaywall({bool reopenArchive = true}) async {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    Analytics.send('Paywall.shown');
     final ok = await showCozySheet<bool>(context, PaywallSheet(premium: widget.premium, storage: widget.storage));
     if (ok == true && mounted) {
+      Analytics.send('Plus.bought');
       setState(() {});
       if (reopenArchive) _openArchive();
     }
@@ -523,6 +541,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     } else {
       Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchAhead(DateTime.now()));
     }
+    final won = _game;
+    final freshDaily = won != null && !won.puzzle.isPractice && !won.archive;
+    if (freshDaily) {
+      // Today is done: no reminder today, and iCloud gets the new streak.
+      DailyReminder.reschedule(widget.storage);
+      CloudSync.push(widget.storage);
+    }
     Future<void>.delayed(const Duration(milliseconds: 700), () async {
       if (!mounted) return;
       final g = _game;
@@ -535,8 +560,53 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         await showStreakMilestone(context, g.streakAfter);
         if (!mounted) return;
       }
-      _openResults();
+      await _openResults();
+      if (mounted && freshDaily && identical(g, won)) _afterDailyResults(won);
     });
+  }
+
+  /// Once the result sheet of today's solve is closed: maybe ask for a
+  /// rating (once, after the 5th perfect solve), or offer the reminder
+  /// (once, from the 2nd solve).
+  Future<void> _afterDailyResults(GameController g) async {
+    final s = widget.storage;
+    if (kIsWeb) return;
+    if (g.stars == 3 && (s.stats.stars[3] ?? 0) >= 5 && !s.askedReview) {
+      await s.setAskedReview();
+      try {
+        final review = InAppReview.instance;
+        if (await review.isAvailable()) {
+          Analytics.send('Review.asked');
+          await review.requestReview();
+        }
+      } catch (_) {}
+      return;
+    }
+    if (s.stats.solved >= 2 && !s.dailyReminder && !s.offeredReminder) {
+      await s.setOfferedReminder();
+      if (!mounted) return;
+      final at = TimeOfDay(hour: reminderMinute(s.playMinutes) ~/ 60, minute: reminderMinute(s.playMinutes) % 60);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Palette.navy,
+          duration: const Duration(seconds: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          content: Text(
+            'Want a nudge tomorrow around ${at.format(context)}?',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+          action: SnackBarAction(
+            label: 'Remind me',
+            textColor: Palette.gold,
+            onPressed: () async {
+              final ok = await DailyReminder.enable(s);
+              Analytics.send('Reminder.on', {'from': 'offer', 'allowed': ok});
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _toastTravel(int streak) {
@@ -647,10 +717,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _openResults({bool statsOnly = false}) {
+  Future<void> _openResults({bool statsOnly = false}) async {
     final g = _game;
     if (g == null) return;
-    showCozySheet(
+    await showCozySheet(
       context,
       ResultSheet(
         game: g,
@@ -680,7 +750,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: _home
+                child: _tutorial
+                    ? TutorialView(storage: widget.storage, onDone: _tutorialDone)
+                    : _home
                     ? HomeView(
                         storage: widget.storage,
                         daily: _daily,
@@ -1368,6 +1440,31 @@ class _SettingsSheetState extends State<SettingsSheet> {
     );
   }
 
+  Widget _reminderSwitch() {
+    final m = reminderMinute(widget.storage.playMinutes);
+    final at = TimeOfDay(hour: m ~/ 60, minute: m % 60).format(context);
+    return _switch('Daily reminder', 'A nudge around $at, when you usually play', widget.storage.dailyReminder, (
+      v,
+    ) async {
+      if (v) {
+        final ok = await DailyReminder.enable(widget.storage);
+        Analytics.send('Reminder.on', {'from': 'settings', 'allowed': ok});
+        if (!ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              behavior: SnackBarBehavior.floating,
+              content: Text('Notifications are off for Daily Sort. Turn them on in the phone\'s Settings.'),
+            ),
+          );
+        }
+      } else {
+        await DailyReminder.disable(widget.storage);
+        Analytics.send('Reminder.off');
+      }
+      if (mounted) setState(() {});
+    });
+  }
+
   Widget _heading(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 6),
     child: Text(text, textAlign: TextAlign.center, style: Palette.display(size: 22)),
@@ -1503,6 +1600,21 @@ class _SettingsSheetState extends State<SettingsSheet> {
           plainShareOn(context, widget.storage),
           widget.storage.setPlainShare,
         ),
+        if (!kIsWeb) _reminderSwitch(),
+        if (!kIsWeb)
+          _switch(
+            'Help improve Daily Sort',
+            'Send anonymous counts, like how many solve today\'s puzzle. Never your name or what you type.',
+            widget.storage.analyticsOn,
+            (v) {
+              if (!v) {
+                Analytics.send('Analytics.off');
+                Analytics.flush();
+                Analytics.stopped();
+              }
+              widget.storage.setAnalytics(v);
+            },
+          ),
         Divider(height: 32, color: Palette.line),
         _heading('New phone?'),
         Text(
