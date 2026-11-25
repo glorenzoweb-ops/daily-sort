@@ -12,7 +12,6 @@ import '../services/sound.dart';
 import 'ambient_clock.dart';
 import 'motion.dart';
 import 'palette.dart';
-import 'solve_art.dart';
 
 /// Geometry for laying tubes out in one row, sized to the available width.
 class BoardLayout {
@@ -69,7 +68,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   late final AnimationController _pour = AnimationController(vsync: this);
   late final AnimationController _shake = AnimationController(vsync: this, duration: const Duration(milliseconds: 360));
   late final AnimationController _glow = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-  late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 3400));
+  late final AnimationController _win = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
 
   // A clock that always runs, for idle life (breathing, blinking), jelly
   // wobble and particles.
@@ -84,7 +83,6 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
   Poured? _pending;
   int? _shakeTube;
   int? _glowTube;
-  List<PourInfo> _winPours = const [];
   final _Sprites _sprites = _Sprites();
   BoardLayout? _layout;
 
@@ -217,7 +215,6 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     if (p.won) {
       Haptics.win();
       Sounds.solved();
-      _winPours = widget.game.pours;
       _win.forward(from: 0);
     }
     setState(() {});
@@ -389,7 +386,6 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
                         winT: _win.isAnimating || _win.isCompleted
                             ? _win.value
                             : (game.status == GameStatus.won ? 1.0 : 0.0),
-                        winPours: _win.isAnimating ? _winPours : const [],
                         won: game.status == GameStatus.won && _pending == null,
                         time: _time.value,
                         landAt: _landAt,
@@ -432,7 +428,6 @@ class _BoardPainter extends CustomPainter {
   final double shakeAt;
   final int? lookTube;
   final bool breathe;
-  final List<PourInfo> winPours;
   final _Sprites sprites;
   final double dpr;
 
@@ -449,7 +444,6 @@ class _BoardPainter extends CustomPainter {
     this.selected,
     required this.sprites,
     required this.dpr,
-    this.winPours = const [],
     this.breathe = false,
     required this.time,
     required this.landAt,
@@ -495,7 +489,7 @@ class _BoardPainter extends CustomPainter {
         dx = math.sin(shakeT * math.pi * 6) * 7 * (1 - shakeT);
       }
       if (!still && won && winT > 0) {
-        final t = _seg(winT, i * 0.03, i * 0.03 + 0.15);
+        final t = _seg(winT, i * 0.065, i * 0.065 + 0.32);
         dy = -math.sin(t * math.pi) * L.ball * 0.55;
       }
       canvas.save();
@@ -589,7 +583,6 @@ class _BoardPainter extends CustomPainter {
     if (hint != null && !won) _hint(canvas, hint!);
     canvas.restore();
     _drawSparks(canvas);
-    if (winPours.isNotEmpty) _winPainting(canvas, size);
     if (idle) _prepareNext();
   }
 
@@ -615,7 +608,6 @@ class _BoardPainter extends CustomPainter {
       if (picky != null)
         ('back:${picky.toARGB32()}:${picky.toARGB32()}', r0.inflate(2), (cv) => _tubeBack(cv, r0, picky, picky)),
       ('glow', r0.inflate(40), _glowSprite),
-      ('halo', Rect.fromCircle(center: Offset.zero, radius: 100), _haloSprite),
     ];
     for (final (key, bounds, draw) in jobs) {
       if (sprites.has(key)) continue;
@@ -629,14 +621,6 @@ class _BoardPainter extends CustomPainter {
     Paint()
       ..color = Colors.white
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, 12),
-  );
-
-  static void _haloSprite(Canvas c) => c.drawCircle(
-    Offset.zero,
-    62,
-    Paint()
-      ..color = Palette.gold
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 16),
   );
 
   /// A wooden shelf the tubes stand on, with a soft shadow under each tube.
@@ -689,81 +673,6 @@ class _BoardPainter extends CustomPainter {
           ..color = const Color(0x33402810)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.25),
       );
-    }
-  }
-
-  /// The win: colors stream out of the tubes and paint the solve painting in
-  /// a glowing disc over the board, then it floats away to the result card.
-  void _winPainting(Canvas canvas, Size size) {
-    final L = layout;
-    final appear = Curves.easeOutBack.transform(_seg(winT, 0.18, 0.32));
-    final leave = Curves.easeIn.transform(_seg(winT, 0.88, 1.0));
-    final a = (_seg(winT, 0.18, 0.26) * (1 - leave)).clamp(0.0, 1.0);
-    if (a <= 0) return;
-    final center = Offset(size.width / 2, L.tubeTop + L.tubeH * 0.45);
-    final radius = math.min(size.width * 0.44, L.tubeH * 0.72) * appear * (1 - 0.35 * leave);
-    // Soft veil that fades the board behind the disc.
-    final veil = Rect.fromCircle(center: center, radius: math.max(1, radius * 2.4));
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            const Color(0xFFFFF7EA).withValues(alpha: 0.7 * a),
-            const Color(0x00FFF7EA),
-          ],
-        ).createShader(veil),
-    );
-    // Streams of color from each tube into the disc.
-    final streamA = _seg(winT, 0.25, 0.35) * (1 - _seg(winT, 0.72, 0.82));
-    if (streamA > 0) {
-      for (var i = 0; i < board.tubeCount; i++) {
-        if (board.tubes[i].isEmpty) continue;
-        final color = Palette.balls[board.tubes[i].first];
-        final from = Offset(L.cx(i), L.tubeTop);
-        final ctrl = Offset((from.dx + center.dx) / 2, L.tubeTop - L.ball * 2.5);
-        for (var k = 0; k < 9; k++) {
-          final s = (time * 0.9 + k / 9 + i * 0.13) % 1.0;
-          final q = Offset.lerp(Offset.lerp(from, ctrl, s)!, Offset.lerp(ctrl, center, s)!, s)!;
-          canvas.drawCircle(
-            q,
-            L.ball * (0.16 - 0.08 * s),
-            Paint()..color = color.withValues(alpha: streamA * a * (1 - s * 0.6)),
-          );
-        }
-      }
-    }
-    // The disc.
-    final halo = sprites.get('halo', Rect.fromCircle(center: Offset.zero, radius: 100), _haloSprite);
-    canvas.drawImageRect(
-      halo.image,
-      Rect.fromLTWH(0, 0, halo.image.width.toDouble(), halo.image.height.toDouble()),
-      Rect.fromCircle(center: center, radius: radius * 1.18 * 100 / 62),
-      Paint()
-        ..filterQuality = FilterQuality.low
-        ..color = Colors.white.withValues(alpha: 0.35 * a),
-    );
-    canvas.drawCircle(center, radius, Paint()..color = Colors.white.withValues(alpha: a));
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..color = Palette.gold.withValues(alpha: a),
-    );
-    if (radius > 4) {
-      canvas.save();
-      canvas.translate(center.dx - radius, center.dy - radius);
-      canvas.saveLayer(Rect.fromLTWH(0, 0, radius * 2, radius * 2), Paint()..color = Colors.black.withValues(alpha: a));
-      SolveArtPainter(
-        pours: winPours,
-        tubeCount: board.tubeCount,
-        progress: Curves.easeInOut.transform(_seg(winT, 0.3, 0.85)),
-        showGuides: false,
-      ).paint(canvas, Size(radius * 2, radius * 2));
-      canvas.restore();
-      canvas.restore();
     }
   }
 
