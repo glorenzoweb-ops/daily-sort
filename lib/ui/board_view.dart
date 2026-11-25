@@ -198,6 +198,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     Haptics.land();
     Sounds.clink();
     _landAt[p.move.to] = _now;
+    _splash(p.move.to, p.color, p.before.tubes[p.move.to].length + p.count - 1);
     _wake();
     if (p.completedTube) {
       Haptics.tubeComplete();
@@ -218,6 +219,20 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       _win.forward(from: 0);
     }
     setState(() {});
+  }
+
+  /// A few droplets of the ball's color hop up where it lands.
+  void _splash(int tube, int color, int slot) {
+    final L = _layout;
+    if (L == null || Motion.reduced) return;
+    final origin = Offset(L.cx(tube), L.slotY(slot) - L.ball * 0.4);
+    for (var i = 0; i < 5; i++) {
+      final a = -math.pi / 2 + (i - 2) * 0.42 + (_rnd.nextDouble() - 0.5) * 0.2;
+      final v = L.ball * (1.6 + _rnd.nextDouble() * 1.2);
+      _sparks.add(
+        _Spark(origin, Offset(math.cos(a), math.sin(a)) * v, _now, Palette.balls[color], L.ball * 0.06, true, 0),
+      );
+    }
   }
 
   /// Confetti puff out of a tube that just completed, plus a tiny shake.
@@ -482,6 +497,7 @@ class _BoardPainter extends CustomPainter {
     final lookX = lookTube == null ? null : L.cx(lookTube!);
     if (breathe) _breathing(canvas, size);
     sprites.draw(canvas, sprites.get('shelf', (Offset.zero & L.size).inflate(L.ball * 1.5), _shelf), Offset.zero);
+    _reflections(canvas);
     final r0 = L.tubeRect(0);
     for (var i = 0; i < board.tubeCount; i++) {
       var dx = 0.0, dy = 0.0;
@@ -579,6 +595,12 @@ class _BoardPainter extends CustomPainter {
       }
       canvas.restore();
     }
+    for (var i = 0; i < board.tubeCount; i++) {
+      if (board.isPicky(i)) _pickyBadge(canvas, i);
+    }
+    if (!still && glowTube != null && glowT > 0.36 && glowT < 1 && board.isTubeComplete(glowTube!)) {
+      _sparkleRing(canvas, glowTube!, _seg(glowT, 0.36, 1));
+    }
     if (p != null) _flying(canvas, p);
     if (hint != null && !won) _hint(canvas, hint!);
     canvas.restore();
@@ -641,19 +663,23 @@ class _BoardPainter extends CustomPainter {
     canvas.drawRRect(
       RRect.fromRectAndCorners(front, bottomLeft: Radius.circular(h * 0.5), bottomRight: Radius.circular(h * 0.5)),
       Paint()
-        ..shader = const LinearGradient(
+        ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFD9A877), Color(0xFFC18E5E)],
+          colors: Palette.dark
+              ? const [Color(0xFF5A3E2A), Color(0xFF412C1E)]
+              : const [Color(0xFFD9A877), Color(0xFFC18E5E)],
         ).createShader(front),
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(top, Radius.circular(h * 0.4)),
       Paint()
-        ..shader = const LinearGradient(
+        ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFF6D9B4), Color(0xFFE9C392)],
+          colors: Palette.dark
+              ? const [Color(0xFF7C5A3E), Color(0xFF684A32)]
+              : const [Color(0xFFF6D9B4), Color(0xFFE9C392)],
         ).createShader(top),
     );
     // Wood grain.
@@ -794,6 +820,67 @@ class _BoardPainter extends CustomPainter {
     }
   }
 
+  /// Each tube's bottom ball glows faintly in the shelf's polish.
+  void _reflections(Canvas canvas) {
+    final L = layout;
+    final y = L.tubeTop + L.tubeH;
+    final h = L.ball * 0.34;
+    for (var i = 0; i < board.tubeCount; i++) {
+      final t = board.tubes[i];
+      if (t.isEmpty) continue;
+      final c = Palette.balls[t.first];
+      final r = Rect.fromCenter(center: Offset(L.cx(i), y + h * 0.15), width: L.ball * 0.8, height: h * 0.55);
+      canvas.drawOval(
+        r,
+        Paint()
+          ..color = c.withValues(alpha: Palette.dark ? 0.35 : 0.22)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.3),
+      );
+    }
+  }
+
+  /// A tag on the shelf under the picky tube: the only color it takes.
+  void _pickyBadge(Canvas canvas, int i) {
+    final L = layout;
+    final c = Offset(L.cx(i), L.tubeTop + L.tubeH + L.ball * 0.36);
+    final r = L.ball * 0.24;
+    canvas.drawCircle(c.translate(0, r * 0.15), r * 1.05, Paint()..color = const Color(0x33301E0A));
+    canvas.drawCircle(c, r, Paint()..color = Colors.white);
+    final color = Palette.balls[board.rules.pickyColor];
+    canvas.drawCircle(
+      c,
+      r * 0.72,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = r * 0.2
+        ..color = color,
+    );
+    canvas.drawCircle(c, r * 0.32, Paint()..color = color);
+  }
+
+  /// Sparkles burst out around a cork as it lands.
+  void _sparkleRing(Canvas canvas, int tube, double t) {
+    final L = layout;
+    final center = Offset(L.cx(tube), L.tubeTop - L.ball * 0.15);
+    final color = board.tubes[tube].isEmpty ? Palette.gold : Palette.balls[board.tubes[tube].first];
+    final e = Curves.easeOutCubic.transform(t);
+    final radius = L.ball * (0.45 + 1.1 * e);
+    final alpha = (1 - t).clamp(0.0, 1.0);
+    for (var k = 0; k < 10; k++) {
+      final a = k / 10 * math.pi * 2 + 0.3;
+      final pos = center + Offset(math.cos(a), math.sin(a) * 0.75) * radius;
+      final s = L.ball * (k.isEven ? 0.13 : 0.09) * (1 - 0.4 * t);
+      final star = Path()
+        ..moveTo(pos.dx, pos.dy - s)
+        ..quadraticBezierTo(pos.dx, pos.dy, pos.dx + s, pos.dy)
+        ..quadraticBezierTo(pos.dx, pos.dy, pos.dx, pos.dy + s)
+        ..quadraticBezierTo(pos.dx, pos.dy, pos.dx - s, pos.dy)
+        ..quadraticBezierTo(pos.dx, pos.dy, pos.dx, pos.dy - s)
+        ..close();
+      canvas.drawPath(star, Paint()..color = (k % 3 == 0 ? Palette.gold : color).withValues(alpha: alpha));
+    }
+  }
+
   void _flying(Canvas canvas, Poured p) {
     final L = layout;
     final src = p.before.tubes[p.move.from];
@@ -807,17 +894,35 @@ class _BoardPainter extends CustomPainter {
       final endY = L.slotY(dstLen + q);
       double tq(double t) => _seg(t, q * stagger, q * stagger + span);
       final t = tq(pourT);
-      // A soft comet trail while the ball is in the air.
-      if (t > 0.05 && t < 0.86) {
-        for (var g = 1; g <= 4; g++) {
-          final gt = tq(pourT - g * 0.035 * span);
-          final (gx, gy, _, _) = _flight(gt, startY, endY, p);
-          canvas.drawCircle(
-            Offset(gx, gy),
-            L.ball / 2 * (1 - g * 0.13),
-            Paint()..color = color.withValues(alpha: 0.22 - g * 0.045),
-          );
+      // A liquid ribbon of color trails the ball while it's in the air,
+      // tapering to a point behind it.
+      if (t > 0.04 && t < 0.88) {
+        const steps = 9;
+        final pts = <Offset>[];
+        for (var g = 0; g <= steps; g++) {
+          final (gx, gy, _, _) = _flight(tq(pourT - g * 0.022 * span), startY, endY, p);
+          pts.add(Offset(gx, gy));
         }
+        final left = <Offset>[], right = <Offset>[];
+        for (var g = 0; g <= steps; g++) {
+          final a = pts[math.max(0, g - 1)], b = pts[math.min(steps, g + 1)];
+          var d = b - a;
+          if (d.distance < 0.01) d = const Offset(0, 1);
+          final n = Offset(-d.dy, d.dx) / d.distance;
+          final w = L.ball * 0.36 * (1 - g / steps);
+          left.add(pts[g] + n * w);
+          right.add(pts[g] - n * w);
+        }
+        final ribbon = Path()..addPolygon([...left, ...right.reversed], true);
+        final fade = t < 0.12 ? _seg(t, 0.04, 0.12) : 1 - _seg(t, 0.8, 0.88);
+        canvas.drawPath(
+          ribbon,
+          Paint()
+            ..shader = ui.Gradient.linear(pts.first, pts.last, [
+              color.withValues(alpha: 0.42 * fade),
+              color.withValues(alpha: 0),
+            ]),
+        );
       }
       final (x, y, scaleX, scaleY) = _flight(t, startY, endY, p);
       canvas.save();
@@ -1131,20 +1236,25 @@ class _BoardPainter extends CustomPainter {
     }
     sprites.draw(
       canvas,
-      sprites.get('ball:$colorIndex:${Palette.ballsKey}', Rect.fromLTRB(-r * 1.05, -r * 1.05, r * 1.05, r * 1.3), (c) {
-        _ball(c, Offset.zero, Palette.balls[colorIndex], r);
-        // Colorblind mode: a shape under the face tells the colors apart.
-        if (Palette.colorblind) {
-          paintBallShape(
-            c,
-            Offset(0, r * 0.66),
-            r * 0.4,
-            Palette.shapes[colorIndex % Palette.shapes.length],
-            Colors.white,
-            Palette.navy.withValues(alpha: 0.6),
-          );
-        }
-      }, sharpness: 1.4),
+      sprites.get(
+        'ball:$colorIndex:${Palette.ballsKey}:${Palette.dark}',
+        Rect.fromLTRB(-r * 1.4, -r * 1.4, r * 1.4, r * 1.4),
+        (c) {
+          _ball(c, Offset.zero, Palette.balls[colorIndex], r);
+          // Colorblind mode: a shape under the face tells the colors apart.
+          if (Palette.colorblind) {
+            paintBallShape(
+              c,
+              Offset(0, r * 0.66),
+              r * 0.4,
+              Palette.shapes[colorIndex % Palette.shapes.length],
+              Colors.white,
+              Palette.navy.withValues(alpha: 0.6),
+            );
+          }
+        },
+        sharpness: 1.4,
+      ),
       Offset.zero,
     );
     _face(canvas, r, mood, phase, lookX == null ? 0 : ((lookX - c.dx) / (r * 4)).clamp(-1.0, 1.0));
@@ -1240,6 +1350,19 @@ class _BoardPainter extends CustomPainter {
   /// A glossy candy ball: soft contact shadow, deep body shading, bounced
   /// light from below, a crisp specular highlight and a fine outline.
   void _ball(Canvas canvas, Offset c, Color color, double r) {
+    if (Palette.dark) {
+      // At night the balls glow softly in their own color.
+      final halo = Rect.fromCircle(center: c, radius: r * 1.4);
+      canvas.drawCircle(
+        c,
+        r * 1.4,
+        Paint()
+          ..shader = RadialGradient(
+            colors: [color.withValues(alpha: 0.45), color.withValues(alpha: 0)],
+            stops: const [0.55, 1],
+          ).createShader(halo),
+      );
+    }
     // Contact shadow on whatever is underneath.
     final sh = Rect.fromCenter(center: c.translate(0, r * 0.88), width: r * 1.7, height: r * 0.55);
     canvas.drawOval(

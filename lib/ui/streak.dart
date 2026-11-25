@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../services/feedback.dart';
 import '../services/storage.dart';
 import 'palette.dart';
+import 'rolling_number.dart';
 import 'squish.dart';
 
 const _flameTop = Color(0xFFFFC23F);
@@ -109,22 +110,11 @@ class _StreakFlameState extends State<StreakFlame> with SingleTickerProviderStat
                     children: [
                       _flameIcon(28, lit: widget.litToday),
                       const SizedBox(width: 2),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        transitionBuilder: (c, a) => ScaleTransition(
-                          scale: Tween(
-                            begin: 1.6,
-                            end: 1.0,
-                          ).animate(CurvedAnimation(parent: a, curve: Curves.easeOutBack)),
-                          child: FadeTransition(opacity: a, child: c),
-                        ),
-                        child: Text(
-                          '${widget.streak}',
-                          key: ValueKey(widget.streak),
-                          style: Palette.display(
-                            size: 22,
-                            color: widget.litToday ? const Color(0xFFE5602B) : Palette.inkSoft,
-                          ),
+                      RollingNumber(
+                        widget.streak,
+                        style: Palette.display(
+                          size: 22,
+                          color: widget.litToday ? const Color(0xFFE5602B) : Palette.inkSoft,
                         ),
                       ),
                     ],

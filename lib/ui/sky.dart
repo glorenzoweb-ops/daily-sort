@@ -119,7 +119,10 @@ _Mood _moodAt(double h) {
 class SkyPainter extends CustomPainter {
   final ValueNotifier<double> time;
   final double? hourOverride;
-  SkyPainter(this.time, {this.hourOverride}) : super(repaint: time);
+
+  /// Override the month for the seasonal particles (tests, previews).
+  final int? monthOverride;
+  SkyPainter(this.time, {this.hourOverride, this.monthOverride}) : super(repaint: time);
 
   double dpr = 1;
   ui.Image? _base;
@@ -209,6 +212,60 @@ class SkyPainter extends CustomPainter {
         final k = (34.0 + i * 6) / 40;
         canvas.drawImageRect(cloud, src, Rect.fromLTWH(x - 100 * k, y - 50 * k, 200 * k, 120 * k), paint);
       }
+    }
+    _paintSeason(canvas, size, t, nightA);
+  }
+
+  /// Something drifts down that matches the time of year: snow in winter,
+  /// blossom petals in spring, leaves in autumn, fireflies on summer nights.
+  void _paintSeason(Canvas canvas, Size size, double t, double nightA) {
+    final month = monthOverride ?? DateTime.now().month;
+    final w = size.width, H = size.height;
+    final rnd = math.Random(11);
+    final paint = Paint();
+    if (month >= 6 && month <= 8) {
+      if (nightA <= 0) return;
+      for (var i = 0; i < 14; i++) {
+        final bx = rnd.nextDouble(), by = rnd.nextDouble(), ph = rnd.nextDouble() * 6;
+        final p = Offset(
+          (bx * w + math.sin(t * 0.25 + ph) * 26) % w,
+          H * (0.35 + 0.5 * by) + math.cos(t * 0.31 + ph) * 18,
+        );
+        final glow = (0.5 + 0.5 * math.sin(t * 1.3 + ph * 3)) * nightA;
+        paint.color = const Color(0xFFFFE97A).withValues(alpha: 0.25 * glow);
+        canvas.drawCircle(p, 7, paint);
+        paint.color = const Color(0xFFFFF3B0).withValues(alpha: 0.9 * glow);
+        canvas.drawCircle(p, 2, paint);
+      }
+      return;
+    }
+    final winter = month == 12 || month <= 2;
+    final spring = month >= 3 && month <= 5;
+    const leafColors = [Color(0xFFE8913A), Color(0xFFD9653B), Color(0xFFE2B33C)];
+    final count = winter ? 34 : 16;
+    for (var i = 0; i < count; i++) {
+      final bx = rnd.nextDouble(), by = rnd.nextDouble(), ph = rnd.nextDouble() * 6;
+      final size0 = 0.6 + rnd.nextDouble() * 0.8;
+      final speed = (winter ? 14.0 : 20.0) * (0.7 + size0 * 0.5);
+      final y = (by * (H + 40) + t * speed) % (H + 40) - 20;
+      final x = (bx * w + math.sin(t * 0.6 + ph) * (winter ? 14 : 30)) % w;
+      final c = Offset(x, y);
+      if (winter) {
+        paint.color = const Color(0x338090B0);
+        canvas.drawCircle(c, 3.2 * size0 + 0.6, paint);
+        paint.color = Colors.white.withValues(alpha: 0.9);
+        canvas.drawCircle(c, 3.2 * size0, paint);
+        continue;
+      }
+      canvas.save();
+      canvas.translate(c.dx, c.dy);
+      canvas.rotate(t * (0.8 + size0) + ph);
+      final r = (spring ? 4.0 : 5.5) * size0;
+      paint.color = spring
+          ? Color.lerp(const Color(0xFFF7B6C8), Colors.white, 0.3 * (i % 3) / 2)!.withValues(alpha: 0.9)
+          : leafColors[i % 3].withValues(alpha: 0.85);
+      canvas.drawOval(Rect.fromCenter(center: Offset.zero, width: r * 2.4, height: r * 1.3), paint);
+      canvas.restore();
     }
   }
 

@@ -5,13 +5,16 @@ import 'package:material_ui/material_ui.dart';
 
 import '../game/daily.dart';
 import '../game/game_controller.dart';
+import '../services/feedback.dart';
 import '../services/friends.dart';
 import '../services/premium.dart';
 import '../services/share.dart';
+import '../services/sound.dart';
 import '../services/storage.dart';
 import 'ambient_clock.dart';
 import 'archive.dart';
 import 'history.dart';
+import 'motion.dart';
 import 'palette.dart';
 import 'social.dart';
 import 'solve_art.dart';
@@ -315,7 +318,11 @@ class _ResultSheetState extends State<ResultSheet> {
                 border: Border.all(color: Palette.line, width: 2),
               ),
               clipBehavior: Clip.antiAlias,
-              child: SolveArtPlayer(pours: g.pours, tubeCount: g.puzzle.start.tubeCount),
+              child: SolveArtPlayer(
+                pours: g.pours,
+                tubeCount: g.puzzle.start.tubeCount,
+                startDelay: const Duration(milliseconds: 1700),
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -482,27 +489,104 @@ class _FriendsPreview extends StatelessWidget {
   }
 }
 
-class _Stars extends StatelessWidget {
+class _Stars extends StatefulWidget {
   final int count;
   const _Stars({required this.count});
 
   @override
+  State<_Stars> createState() => _StarsState();
+}
+
+/// The star moment: each earned star flies in from above, one at a time,
+/// with a rising note and a gold flash. Missing stars fade in quietly.
+class _StarsState extends State<_Stars> with SingleTickerProviderStateMixin {
+  static const _gap = 0.22; // of the animation, between stars
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
+  int _rung = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Motion.reduced) {
+      _c.value = 1;
+      return;
+    }
+    _c.addListener(() {
+      // A note as each earned star lands.
+      while (_rung < widget.count && _c.value >= 0.12 + _rung * _gap + 0.16) {
+        Sounds.note(5 + _rung * 2, volume: 0.6);
+        Haptics.land();
+        _rung++;
+      }
+    });
+    Future<void>.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < 3; i++)
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: Duration(milliseconds: 380 + i * 160),
-            curve: Interval(i * 0.25, 1, curve: Curves.elasticOut),
-            builder: (_, v, child) => Transform.scale(scale: v, child: child),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Icon(Icons.star_rounded, size: 46, color: i < count ? Palette.gold : Palette.line),
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, _) =>
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [for (var i = 0; i < 3; i++) _star(i)]),
+    );
+  }
+
+  Widget _star(int i) {
+    final earned = i < widget.count;
+    final start = 0.12 + i * _gap;
+    final t = ((_c.value - start) / 0.3).clamp(0.0, 1.0);
+    final Widget icon = Icon(Icons.star_rounded, size: 46, color: earned ? Palette.gold : Palette.line);
+    if (!earned) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Opacity(opacity: t, child: icon),
+      );
+    }
+    final fly = Curves.easeOutBack.transform(t);
+    // A gold ring flashes out as the star lands.
+    final flash = ((t - 0.5) / 0.5).clamp(0.0, 1.0);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: SizedBox(
+        width: 46,
+        height: 46,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            if (flash > 0 && flash < 1)
+              Container(
+                width: 46 + 40 * flash,
+                height: 46 + 40 * flash,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Palette.gold.withValues(alpha: 1 - flash),
+                    width: 3 * (1 - flash) + 0.5,
+                  ),
+                ),
+              ),
+            Opacity(
+              opacity: t.clamp(0.0, 1.0),
+              child: Transform.translate(
+                offset: Offset(0, -60 * (1 - fly)),
+                child: Transform.rotate(
+                  angle: (1 - fly) * -1.2,
+                  child: Transform.scale(scale: 0.4 + 0.6 * fly, child: icon),
+                ),
+              ),
             ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }

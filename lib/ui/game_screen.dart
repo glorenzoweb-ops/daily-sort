@@ -15,6 +15,7 @@ import 'confetti.dart';
 import 'motion.dart';
 import 'perf.dart';
 import 'palette.dart';
+import 'rolling_number.dart';
 import 'sky.dart';
 import 'squish.dart';
 import '../services/friends.dart';
@@ -883,17 +884,9 @@ class _MovesPill extends StatelessWidget {
             'MOVES  ',
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1),
           ),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            transitionBuilder: (child, a) => ScaleTransition(
-              scale: Tween(begin: 1.5, end: 1.0).animate(CurvedAnimation(parent: a, curve: Curves.easeOutBack)),
-              child: FadeTransition(opacity: a, child: child),
-            ),
-            child: Text(
-              '$used',
-              key: ValueKey(used),
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Palette.gold),
-            ),
+          RollingNumber(
+            used,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Palette.gold),
           ),
           if (limit != null)
             Text(
