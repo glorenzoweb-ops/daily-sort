@@ -12,6 +12,7 @@ import '../services/sound/ambience.dart';
 import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
+import 'home.dart';
 import 'motion.dart';
 import 'perf.dart';
 import 'palette.dart';
@@ -63,6 +64,39 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// you go back to today.
   GameController? _archive;
   bool _inUnwind = false;
+
+  /// The opening menu shows first; Play (or any way into a puzzle) leaves it.
+  /// A friend's result link goes straight to the board.
+  late bool _home = widget.incomingResult == null;
+
+  void _leaveHome() {
+    if (_home) setState(() => _home = false);
+  }
+
+  void _goHome() {
+    if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    setState(() => _home = true);
+  }
+
+  /// Play from the menu: today's board (or its result, once solved). The very
+  /// first time, how to play comes first.
+  Future<void> _playFromHome() async {
+    final d = _daily;
+    if (d == null) return;
+    setState(() {
+      _home = false;
+      _inUnwind = false;
+      _archive?.dispose();
+      _archive = null;
+    });
+    if (!widget.storage.seenHowTo) {
+      widget.storage.setSeenHowTo();
+      await showCozySheet(context, const HowToSheet());
+    } else if (d.status == GameStatus.won) {
+      _openResults();
+    }
+  }
+
   late final Puzzles _puzzles = Puzzles(widget.storage);
   late final Friends _friends = Friends(widget.storage);
   late final Reactions _reactions = Reactions(widget.storage);
@@ -123,7 +157,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     // Get an Unwind puzzle ready while the player looks at today's board.
     Future<void>.delayed(const Duration(milliseconds: 1500), _puzzles.prefetchUnwind);
     final fromFriend = await _takeIncoming(puzzle.number);
-    if (!widget.storage.seenHowTo) {
+    if (!widget.storage.seenHowTo && !_home) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
       widget.storage.setSeenHowTo();
@@ -360,6 +394,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _playArchive(int number) async {
+    _leaveHome();
     if (number == _today) {
       _setMode(false);
       return;
@@ -404,6 +439,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   /// Daily ⇄ Unwind. Each keeps its board exactly as you left it.
   void _setMode(bool unwind) {
     if (Navigator.of(context).canPop()) Navigator.of(context).pop();
+    _leaveHome();
     if (!unwind && !_inUnwind && _archive != null) _backToToday();
     if (unwind == _inUnwind) return;
     setState(() => _inUnwind = unwind);
@@ -454,6 +490,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final puzzle = await runInBackground(() => adventPuzzle(n));
     if (!mounted) return;
     setState(() {
+      _home = false;
       _inUnwind = true;
       _unwind?.dispose();
       _unwind = GameController(puzzle, widget.storage);
@@ -643,7 +680,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 520),
-                child: g == null || (_loadingArchive && !_inUnwind)
+                child: _home
+                    ? HomeView(
+                        storage: widget.storage,
+                        daily: _daily,
+                        onPlay: _playFromHome,
+                        onUnwind: () => _setMode(true),
+                        onArchive: _openArchive,
+                        onExtras: _openShop,
+                        onStats: () => _openResults(statsOnly: _daily?.status != GameStatus.won),
+                        onSettings: _openSettings,
+                        onHowTo: () => showCozySheet(context, const HowToSheet()),
+                        onStreak: _openStreak,
+                      )
+                    : g == null || (_loadingArchive && !_inUnwind)
                     ? _Loading(unwind: _inUnwind, onBack: _daily == null ? null : () => _setMode(false))
                     : _buildGame(g),
               ),
@@ -671,11 +721,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 children: [
                   Row(
                     children: [
-                      _IconBtn(
-                        Icons.help_outline_rounded,
-                        'How to play',
-                        () => showCozySheet(context, const HowToSheet()),
-                      ),
+                      _IconBtn(Icons.home_rounded, 'Menu', _goHome),
                       _IconBtn(Icons.tune_rounded, 'Settings', _openSettings),
                       const Spacer(),
                       _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
