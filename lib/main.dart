@@ -11,6 +11,7 @@ import 'services/storage.dart';
 import 'ui/appearance.dart';
 import 'ui/game_screen.dart';
 import 'ui/palette.dart';
+import 'ui/perf.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,12 +20,13 @@ Future<void> main() async {
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   final storage = await Storage.open();
   applySoundAndHaptics(storage);
-  Sounds.init(); // not awaited: the game never waits on audio
   final premium = _premium();
   final appearance = Appearance(storage)..owns = premium.ownsTheme;
   // A purchase or a lapsed subscription can change which theme shows.
   premium.addListener(appearance.systemChanged);
   appearance.systemChanged();
+  // Sounds are built after the first frame, so the board shows first.
+  WidgetsBinding.instance.addPostFrameCallback((_) => Sounds.init()); // never awaited
   runApp(
     DailySortApp(storage: storage, premium: premium, appearance: appearance, incomingResult: incomingResultParam()),
   );
@@ -117,17 +119,21 @@ class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver
       ),
       scaffoldBackgroundColor: Palette.background,
     );
-    return MaterialApp(
-      title: 'Daily Sort',
-      debugShowCheckedModeBanner: false,
-      theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),
-      home: GameScreen(
-        key: _screenKey,
-        onRestored: _restored,
-        storage: widget.storage,
-        premium: widget.premium,
-        appearance: widget.appearance,
-        incomingResult: _incomingUsed ? null : widget.incomingResult,
+    return ValueListenableBuilder(
+      valueListenable: showPerformance,
+      builder: (context, perf, _) => MaterialApp(
+        title: 'Daily Sort',
+        showPerformanceOverlay: perf,
+        debugShowCheckedModeBanner: false,
+        theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),
+        home: GameScreen(
+          key: _screenKey,
+          onRestored: _restored,
+          storage: widget.storage,
+          premium: widget.premium,
+          appearance: widget.appearance,
+          incomingResult: _incomingUsed ? null : widget.incomingResult,
+        ),
       ),
     );
   }

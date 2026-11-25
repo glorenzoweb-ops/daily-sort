@@ -28,7 +28,9 @@ class RevenueCatPremium extends PremiumService {
   /// (and `RC_ANDROID_KEY=goog_...`). Null when payments aren't set up.
   static String? keyForPlatform() {
     if (kIsWeb) return null;
-    const ios = String.fromEnvironment('RC_IOS_KEY');
+    // The public App Store key (safe to ship: it can only read this app's
+    // purchases). A build can still override it with --dart-define.
+    const ios = String.fromEnvironment('RC_IOS_KEY', defaultValue: 'appl_jwSfXUnTCgcKbOYmPilxAHOVNhb');
     const android = String.fromEnvironment('RC_ANDROID_KEY');
     final key = switch (defaultTargetPlatform) {
       TargetPlatform.iOS => ios,

@@ -26,9 +26,26 @@ class AmbientClock extends ChangeNotifier {
     super.addListener(listener);
     if (_timer == null) {
       _sw.start();
-      _timer = Timer.periodic(const Duration(microseconds: 1000000 ~/ fps), (_) => notifyListeners());
+      _timer = Timer.periodic(const Duration(microseconds: 1000000 ~/ fps), (_) {
+        if (_holds == 0 && _foreground) notifyListeners();
+      });
+      _lifecycle ??= AppLifecycleListener(
+        onStateChange: (s) {
+          _foreground = s == AppLifecycleState.resumed;
+        },
+      );
     }
   }
+
+  /// Something covers the board (a sheet): the idle life pauses until every
+  /// hold is released, so nothing redraws behind it.
+  int _holds = 0;
+  void hold() => _holds++;
+  void release() => _holds = _holds > 0 ? _holds - 1 : 0;
+
+  /// The app is in the background or behind Control Center: no idle frames.
+  bool _foreground = true;
+  AppLifecycleListener? _lifecycle;
 
   @override
   void removeListener(VoidCallback listener) {

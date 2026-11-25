@@ -13,6 +13,7 @@ import '../services/storage.dart';
 import 'board_view.dart';
 import 'confetti.dart';
 import 'motion.dart';
+import 'perf.dart';
 import 'palette.dart';
 import 'sky.dart';
 import 'squish.dart';
@@ -482,7 +483,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (_inUnwind) {
       _puzzles.prefetchUnwind();
     } else {
-      Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchTomorrow(DateTime.now()));
+      Future<void>.delayed(const Duration(seconds: 2), () => _puzzles.prefetchAhead(DateTime.now()));
     }
     Future<void>.delayed(const Duration(milliseconds: 700), () async {
       if (!mounted) return;
@@ -689,13 +690,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              _adventDoor != null && _inUnwind ? 'DOOR $_adventDoor' : (p.isPractice ? 'UNWIND' : 'DAILY SORT'),
-              style: Palette.display(size: 38, spacing: 2).copyWith(
-                shadows: const [
-                  Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
-                  Shadow(color: Color(0x33000000), offset: Offset(0, 5), blurRadius: 6),
-                ],
+            SecretTaps(
+              child: Text(
+                _adventDoor != null && _inUnwind ? 'DOOR $_adventDoor' : (p.isPractice ? 'UNWIND' : 'DAILY SORT'),
+                style: Palette.display(size: 38, spacing: 2).copyWith(
+                  shadows: const [
+                    Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
+                    Shadow(color: Color(0x33000000), offset: Offset(0, 5), blurRadius: 6),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 2),

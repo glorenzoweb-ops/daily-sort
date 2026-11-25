@@ -31,15 +31,19 @@ class Puzzles {
   /// A past daily puzzle for the archive (not cached: it's a one-off).
   Future<DailyPuzzle> archive(int number) => runInBackground(() => puzzleForDay(dayForNumber(number)));
 
-  /// Quietly prepares tomorrow's puzzle (call it at a calm moment).
-  Future<void> prefetchTomorrow(DateTime now) async {
-    final day = dayOf(now).add(const Duration(days: 1));
-    final n = puzzleNumberFor(day);
-    if (storage.cachedPuzzle(n) != null) return;
-    try {
-      final p = await runInBackground(() => puzzleForDay(day));
-      await storage.cachePuzzle(n, encodePuzzle(p));
-    } catch (_) {}
+  /// Quietly prepares the next [days] daily puzzles, one at a time (call it
+  /// at a calm moment). They open instantly, even offline.
+  Future<void> prefetchAhead(DateTime now, {int days = 7}) async {
+    final today = puzzleNumberFor(dayOf(now));
+    for (var k = 1; k <= days; k++) {
+      final day = dayOf(now).add(Duration(days: k));
+      final n = puzzleNumberFor(day);
+      if (storage.cachedPuzzle(n) != null) continue;
+      try {
+        final p = await runInBackground(() => puzzleForDay(day));
+        await storage.cachePuzzle(n, encodePuzzle(p), today: today);
+      } catch (_) {}
+    }
   }
 
   /// The next Unwind puzzle: already prepared if [prefetchUnwind] ran.

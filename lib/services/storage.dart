@@ -189,12 +189,15 @@ class Storage {
 
   /// Daily puzzles already generated on this device (see puzzle_cache.dart).
   String? cachedPuzzle(int number) => _prefs.getString('puzzle_$number');
-  Future<void> cachePuzzle(int number, String raw) async {
+
+  /// Saves puzzle [number]. Puzzles older than the day before [today]
+  /// (default: [number]) are dropped.
+  Future<void> cachePuzzle(int number, String raw, {int? today}) async {
     await _prefs.setString('puzzle_$number', raw);
-    // Keep only yesterday onward.
+    final keepFrom = (today ?? number) - 1;
     for (final k in _prefs.getKeys().where((k) => k.startsWith('puzzle_')).toList()) {
       final n = int.tryParse(k.substring(7));
-      if (n != null && n < number - 1) await _prefs.remove(k);
+      if (n != null && n < keepFrom) await _prefs.remove(k);
     }
   }
 
