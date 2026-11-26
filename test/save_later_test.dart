@@ -41,10 +41,11 @@ void main() {
     PerfLog.record('sound: clink', 1.0);
     PerfLog.record('haptic: medium (on iPhone)', 12.0);
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: PerfLogPanel())));
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.textContaining('2.5  sound: clink'), findsOneWidget);
     expect(find.textContaining('haptic: medium'), findsOneWidget);
     await tester.tap(find.textContaining('Slowest'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.textContaining('sound: clink'), findsNothing);
     showPerformance.value = false;
   });
