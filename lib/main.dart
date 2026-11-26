@@ -18,12 +18,14 @@ import 'ui/game_screen.dart';
 import 'ui/palette.dart';
 import 'ui/perf.dart';
 import 'ui/perf_log.dart';
+import 'ui/warmup.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Fonts are bundled in assets/google_fonts: never download them.
   GoogleFonts.config.allowRuntimeFetching = false;
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  final fonts = preloadFonts();
   final storage = await Storage.open();
   // A new iPhone or a reinstall: bring the streak back from iCloud.
   final fromCloud = await CloudSync.restoreIfNew(storage);
@@ -36,6 +38,7 @@ Future<void> main() async {
   // A purchase or a lapsed subscription can change which theme shows.
   premium.addListener(appearance.systemChanged);
   appearance.systemChanged();
+  await fonts;
   // Sounds are built after the first frame, so the board shows first.
   WidgetsBinding.instance.addPostFrameCallback((_) => Sounds.init()); // never awaited
   runApp(

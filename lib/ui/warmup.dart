@@ -1,5 +1,6 @@
 import 'dart:ui' as ui;
 
+import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'palette.dart';
@@ -83,4 +84,61 @@ void warmUpEffects() {
   } catch (_) {
     // Purely an optimization.
   }
+}
+
+/// Every emoji the app shows somewhere. The phone's emoji font is huge and is
+/// opened the first time one is drawn, which used to stall the first opening
+/// of a menu.
+const _emoji = '⇄☀☆☕✅✨⭐️🌊🌍🌙🌤🌧🌿🍰🎄🎨🎯🎵👆👋👏👧👨👩💛💡📏🔇🔒🔥🗓😂😊😮🟥🟦🟧🟨🟩🟪🥇🥈🥉🧪';
+
+/// Lays out and draws text in every bundled font weight and every emoji, at
+/// the sizes menus use, into a hidden image, so a menu's first opening
+/// doesn't have to load and prepare them on the spot.
+void warmUpText() {
+  try {
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec, const Rect.fromLTWH(0, 0, 512, 512));
+    var y = 0.0;
+    for (final weight in const [FontWeight.w400, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900]) {
+      for (final display in const [false, true]) {
+        final tp = TextPainter(
+          text: TextSpan(
+            text: 'Aa 0123456789 · ✓ $_emoji',
+            style: display ? Palette.display(size: 18) : GoogleFonts.nunito(fontSize: 15, fontWeight: weight),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: 512);
+        tp.paint(c, Offset(0, y % 480));
+        y += tp.height;
+        tp.dispose();
+      }
+    }
+    for (final size in const [13.0, 15.0, 18.0, 22.0, 28.0, 40.0]) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: _emoji,
+          style: TextStyle(fontSize: size),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 512);
+      tp.paint(c, Offset(0, y % 480));
+      y += tp.height;
+      tp.dispose();
+    }
+    final pic = rec.endRecording();
+    pic.toImageSync(512, 512).dispose();
+    pic.dispose();
+  } catch (_) {}
+}
+
+/// Starts loading every bundled font weight (they otherwise load the first
+/// time a weight appears, and all text on screen is laid out again).
+Future<void> preloadFonts() async {
+  try {
+    for (final w in const [FontWeight.w400, FontWeight.w600, FontWeight.w700, FontWeight.w800, FontWeight.w900]) {
+      GoogleFonts.nunito(fontWeight: w);
+    }
+    GoogleFonts.fredoka(fontWeight: FontWeight.w700);
+    await GoogleFonts.pendingFonts().timeout(const Duration(seconds: 2));
+  } catch (_) {}
 }
