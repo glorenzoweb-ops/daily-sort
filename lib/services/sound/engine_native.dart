@@ -21,11 +21,15 @@ class _NativeEngine implements NoteEngine {
   Future<void>? _ready;
   Future<void> _init() => _ready ??= _start();
 
-  /// A 2048-frame buffer (46 ms) never runs dry while the screen is busy:
-  /// the smaller one did, and an empty buffer is heard as a screech. A
-  /// limiter on the whole mix keeps many notes at once from clipping.
+  /// The mix runs on its own thread, 4096 frames (85 ms) ahead of the
+  /// speaker, so a busy moment (a page sliding in, a sound loading) can't
+  /// leave the speaker without audio, which is heard as a screech. 48 kHz is
+  /// what iPhones play at, so the output needs no conversion. A limiter on
+  /// the whole mix keeps many notes at once from clipping.
   Future<void> _start() async {
-    if (!_soloud.isInitialized) await _soloud.init(bufferSize: 2048);
+    if (!_soloud.isInitialized) {
+      await _soloud.init(sampleRate: 48000, bufferSize: 1024, devicePeriodFrames: 512, renderAheadFrames: 4096);
+    }
     try {
       _soloud.setMaxActiveVoiceCount(24);
       final limiter = _soloud.filters.limiterFilter;

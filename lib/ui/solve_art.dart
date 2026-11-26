@@ -1,6 +1,4 @@
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
@@ -262,76 +260,4 @@ class SolveArtPlayerState extends State<SolveArtPlayer> with SingleTickerProvide
       ],
     );
   }
-}
-
-/// Renders the shareable 1080x1350 image (Instagram/TikTok-photo friendly).
-Future<Uint8List> renderSolveCard({
-  required List<PourInfo> pours,
-  required int tubeCount,
-  required String title,
-  required String subtitle,
-  required int stars,
-  required String footer,
-  String? fontFamily,
-}) async {
-  const w = 1080.0, h = 1350.0;
-  final rec = ui.PictureRecorder();
-  final canvas = Canvas(rec, const Rect.fromLTWH(0, 0, w, h));
-  canvas.drawRect(const Rect.fromLTWH(0, 0, w, h), Paint()..color = const Color(0xFFFFF7EA));
-  final lines = Paint()..color = Palette.gridLine;
-  for (double y = 0; y < h; y += 48) {
-    canvas.drawRect(Rect.fromLTWH(0, y, w, 2), lines);
-  }
-
-  void text(String s, double y, double size, Color color, FontWeight weight) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: s,
-        style: TextStyle(fontSize: size, color: color, fontWeight: weight, fontFamily: fontFamily),
-      ),
-      textDirection: TextDirection.ltr,
-      textAlign: TextAlign.center,
-    )..layout(maxWidth: w - 120);
-    tp.paint(canvas, Offset((w - tp.width) / 2, y));
-  }
-
-  text(title, 70, 84, Palette.navy, FontWeight.w900);
-  text(subtitle, 178, 40, const Color(0xFF8A8070), FontWeight.w700);
-  // Stars
-  for (var i = 0; i < 3; i++) {
-    _star(canvas, Offset(w / 2 + (i - 1) * 86, 290), 36, i < stars ? Palette.gold : const Color(0xFFE6DDCC));
-  }
-
-  // The solve painting, big.
-  final card = RRect.fromRectAndRadius(const Rect.fromLTWH(90, 400, w - 180, 720), const Radius.circular(44));
-  canvas.drawRRect(card.shift(const Offset(0, 10)), Paint()..color = const Color(0x14000000));
-  canvas.drawRRect(card, Paint()..color = Colors.white);
-  canvas.save();
-  canvas.clipRRect(card);
-  canvas.translate(card.left, card.top);
-  SolveArtPainter(pours: pours, tubeCount: tubeCount).paint(canvas, Size(card.width, card.height));
-  canvas.restore();
-  text('Every solve paints a different picture', card.bottom + 28, 34, const Color(0xFF8A8070), FontWeight.w700);
-
-  text(footer, 1250, 34, const Color(0xFF8A8070), FontWeight.w800);
-
-  final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
-  final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-  return bytes!.buffer.asUint8List();
-}
-
-void _star(Canvas canvas, Offset c, double r, Color color) {
-  final path = Path();
-  for (var i = 0; i < 10; i++) {
-    final a = -math.pi / 2 + i * math.pi / 5;
-    final rr = i.isEven ? r : r * 0.48;
-    final p = c + Offset(math.cos(a), math.sin(a)) * rr;
-    if (i == 0) {
-      path.moveTo(p.dx, p.dy);
-    } else {
-      path.lineTo(p.dx, p.dy);
-    }
-  }
-  path.close();
-  canvas.drawPath(path, Paint()..color = color);
 }
