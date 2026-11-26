@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -29,7 +32,20 @@ class PerfLog {
     _hookFrames();
     if (ms <= (_worst[step] ?? -1)) return;
     _worst[step] = ms;
-    changed.value++;
+    _refreshSoon();
+  }
+
+  static bool _refreshing = false;
+
+  /// Steps are timed in the middle of building and drawing a frame, when the
+  /// panel can't be rebuilt; so it updates just after.
+  static void _refreshSoon() {
+    if (_refreshing) return;
+    _refreshing = true;
+    Timer(const Duration(milliseconds: 100), () {
+      _refreshing = false;
+      changed.value++;
+    });
   }
 
   static void reset() {
@@ -80,6 +96,11 @@ class PerfLogPanel extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Slowest (ms) · tap to reset', style: TextStyle(fontWeight: FontWeight.w900)),
+                      // A debug build is many times slower than the real app.
+                      Text(
+                        kReleaseMode ? 'release build' : (kProfileMode ? 'profile build' : 'DEBUG build (slow)'),
+                        style: TextStyle(color: kDebugMode ? const Color(0xFFFFD27A) : Colors.white70),
+                      ),
                       if (rows.isEmpty) const Text('play a few moves…'),
                       for (final r in rows)
                         Text(
