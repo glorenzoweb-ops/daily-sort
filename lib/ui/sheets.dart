@@ -18,6 +18,7 @@ import 'history.dart';
 import 'motion.dart';
 import 'palette.dart';
 import 'social.dart';
+import 'share_cards.dart';
 import 'solve_art.dart';
 import 'squish.dart';
 import 'streak.dart';
@@ -288,14 +289,20 @@ class _ResultSheetState extends State<ResultSheet> {
   Future<Uint8List> _render() {
     final g = widget.game;
     final p = g.puzzle;
-    return renderSolveCard(
-      pours: g.pours,
-      tubeCount: p.start.tubeCount,
-      title: p.isPractice ? 'Daily Sort · Unwind' : 'Daily Sort #${p.number}',
-      subtitle: '${g.movesUsed} moves · par ${p.par}${p.isPractice ? '' : ' · ${dayLabel(p.day)}'}',
-      stars: g.stars,
-      footer: shareUrl.replaceFirst('https://', '').replaceAll(RegExp(r'/$'), ''),
-      fontFamily: GoogleFonts.nunito().fontFamily,
+    return renderShareCard(
+      ShareCardData(
+        number: p.number,
+        dayLabel: p.isPractice ? 'Unwind' : dayLabel(p.day),
+        moves: g.movesUsed,
+        par: p.par,
+        stars: g.stars,
+        streak: p.isPractice ? 0 : widget.storage.stats.currentStreak(p.number),
+        pours: g.pours,
+        tubeCount: p.start.tubeCount,
+        solved: [for (final t in g.board.tubes) List.of(t)],
+        displayFont: GoogleFonts.fredoka(fontWeight: FontWeight.w700).fontFamily,
+        bodyFont: GoogleFonts.nunito().fontFamily,
+      ),
     );
   }
 
