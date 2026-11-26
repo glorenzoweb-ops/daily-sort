@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 
 /// Bump when any synth changes, so phones rebuild the sounds.
-const _version = 1;
+const _version = 2;
 
 Directory? _dir;
 

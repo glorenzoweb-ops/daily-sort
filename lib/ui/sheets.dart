@@ -30,6 +30,8 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
+    // Dragging is handled by _DragToClose, from anywhere on the sheet.
+    enableDrag: false,
     // Tall sheets (settings) stop below the status bar, notch and Dynamic Island.
     useSafeArea: true,
     backgroundColor: Colors.transparent,
@@ -42,37 +44,131 @@ Future<T?> showCozySheet<T>(BuildContext context, Widget child) {
     ),
     builder: (_) => Align(
       alignment: Alignment.bottomCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Palette.card, Palette.cardLow],
+      child: _DragToClose(
+        builder: (scroll) => ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Palette.card, Palette.cardLow],
+              ),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              boxShadow: const [BoxShadow(color: Color(0x33241A10), blurRadius: 30, offset: Offset(0, -6))],
             ),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            boxShadow: const [BoxShadow(color: Color(0x33241A10), blurRadius: 30, offset: Offset(0, -6))],
-          ),
-          padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.paddingOf(context).bottom),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 5,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: Palette.line, borderRadius: BorderRadius.circular(3)),
-                ),
-                child,
-              ],
+            padding: EdgeInsets.fromLTRB(24, 12, 24, 24 + MediaQuery.paddingOf(context).bottom),
+            child: SingleChildScrollView(
+              controller: scroll,
+              physics: const ClampingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(color: Palette.line, borderRadius: BorderRadius.circular(3)),
+                  ),
+                  child,
+                ],
+              ),
             ),
           ),
         ),
       ),
     ),
   ).whenComplete(AmbientClock.instance.release);
+}
+
+/// Lets a sheet be pulled down from anywhere on it, not only the handle:
+/// a downward drag while its content is scrolled to the top moves the whole
+/// sheet, and a long or quick enough pull closes it. Sideways drags (the
+/// volume sliders) and scrolling the content still work as before.
+class _DragToClose extends StatefulWidget {
+  final Widget Function(ScrollController scroll) builder;
+  const _DragToClose({required this.builder});
+
+  @override
+  State<_DragToClose> createState() => _DragToCloseState();
+}
+
+class _DragToCloseState extends State<_DragToClose> with SingleTickerProviderStateMixin {
+  final _scroll = ScrollController();
+  late final AnimationController _back = AnimationController(vsync: this, duration: const Duration(milliseconds: 220))
+    ..addListener(() => setState(() => _offset = _from * (1 - Curves.easeOutCubic.transform(_back.value))));
+
+  double _offset = 0, _from = 0;
+  Offset? _down;
+  bool? _vertical; // decided once the finger has moved a little
+  bool _pulling = false;
+  final List<(int, double)> _recent = []; // (time µs, y) for the release speed
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    _back.dispose();
+    super.dispose();
+  }
+
+  bool get _atTop => !_scroll.hasClients || _scroll.offset <= 0;
+
+  void _onDown(PointerDownEvent e) {
+    if (_down != null) return; // a second finger: ignore it
+    _back.stop();
+    _down = e.position;
+    _vertical = null;
+    _pulling = false;
+    _recent.clear();
+  }
+
+  void _onMove(PointerMoveEvent e) {
+    final d = _down;
+    if (d == null) return;
+    final moved = e.position - d;
+    if (_vertical == null && moved.distance > 8) _vertical = moved.dy.abs() > moved.dx.abs() * 1.4;
+    if (_vertical != true) return;
+    _recent.add((e.timeStamp.inMicroseconds, e.position.dy));
+    if (_recent.length > 6) _recent.removeAt(0);
+    if (!_pulling) {
+      // Start pulling the sheet once the content can't scroll up any more.
+      if (e.delta.dy > 0 && _atTop) _pulling = true;
+      return;
+    }
+    setState(() => _offset = (_offset + e.delta.dy).clamp(0.0, double.infinity));
+    if (_scroll.hasClients && _scroll.offset != 0) _scroll.jumpTo(0);
+  }
+
+  void _onUp(PointerEvent e) {
+    if (_down == null) return;
+    _down = null;
+    if (!_pulling) return;
+    _pulling = false;
+    var speed = 0.0; // px per second, downward
+    if (_recent.length >= 2) {
+      final (t0, y0) = _recent.first;
+      final (t1, y1) = _recent.last;
+      if (t1 > t0) speed = (y1 - y0) / ((t1 - t0) / 1e6);
+    }
+    final height = context.size?.height ?? 400;
+    if (_offset > height * 0.3 || (speed > 700 && _offset > 20)) {
+      Navigator.of(context).maybePop();
+    } else if (_offset > 0) {
+      _from = _offset;
+      _back.forward(from: 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: _onDown,
+      onPointerMove: _onMove,
+      onPointerUp: _onUp,
+      onPointerCancel: _onUp,
+      child: Transform.translate(offset: Offset(0, _offset), child: widget.builder(_scroll)),
+    );
+  }
 }
 
 class SheetTitle extends StatelessWidget {

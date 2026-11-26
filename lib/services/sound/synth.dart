@@ -18,7 +18,9 @@ Float32List pluck(double freq, {double seconds = 0.9}) {
     final attack = t < 0.004 ? t / 0.004 : 1.0;
     final body = math.sin(2 * math.pi * freq * t) * math.exp(-t * 5.5);
     final bell = math.sin(2 * math.pi * freq * 2.0 * t) * 0.28 * math.exp(-t * 11);
-    final tine = math.sin(2 * math.pi * freq * 5.4 * t) * 0.08 * math.exp(-t * 28);
+    // The metal tine, left out where it would ring above 9 kHz (harsh on
+    // phone speakers).
+    final tine = freq * 5.4 > 9000 ? 0.0 : math.sin(2 * math.pi * freq * 5.4 * t) * 0.08 * math.exp(-t * 28);
     out[i] = (0.42 * attack * (body + bell + tine)).toDouble();
   }
   return out;
@@ -63,9 +65,32 @@ Float32List synthClink(double freq) {
     final t = i / sampleRate;
     var v = 0.0;
     for (var p = 0; p < partials.length; p++) {
+      // Partials above 9 kHz sounded like a screech (and some went past what
+      // the sample rate can hold, folding back as noise).
+      if (freq * partials[p] > 9000) continue;
       v += amps[p] * math.sin(2 * math.pi * freq * partials[p] * t) * math.exp(-t * (14 + p * 9));
     }
     out[i] = (0.22 * v * (t < 0.002 ? t / 0.002 : 1)).toDouble();
+  }
+  return out;
+}
+
+/// The music's own instrument: a soft felt music box an octave below the
+/// pours, with a slow, rounded attack, so the soundtrack never sounds like a
+/// ball landing.
+Float32List synthFelt(double freq) {
+  final n = (sampleRate * 2.4).round();
+  final out = Float32List(n);
+  for (var i = 0; i < n; i++) {
+    final t = i / sampleRate;
+    final attack = t < 0.035 ? math.sin(t / 0.035 * math.pi / 2) : 1.0;
+    final body = math.sin(2 * math.pi * freq * t) * math.exp(-t * 1.6);
+    final warm = math.sin(2 * math.pi * freq * 2 * t + 0.6) * 0.22 * math.exp(-t * 3.2);
+    final air = math.sin(2 * math.pi * freq * 3 * t) * 0.06 * math.exp(-t * 6);
+    out[i] = 0.5 * attack * (body + warm + air);
+  }
+  for (var i = n - 3000; i < n; i++) {
+    out[i] *= (n - i) / 3000;
   }
   return out;
 }

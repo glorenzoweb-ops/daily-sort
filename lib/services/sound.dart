@@ -49,8 +49,9 @@ class Sounds {
     } catch (_) {}
   }
 
-  /// Endless calm music: a slow pad plus a kalimba that wanders over the same
-  /// notes as the pours, never repeating the same way twice.
+  /// Endless calm music: a slow pad plus a felt music box that wanders an
+  /// octave below the pours (its own instrument, so it never sounds like a
+  /// ball landing), never repeating the same way twice.
   static bool music = false;
   static bool _musicPlaying = false;
   static Float32List? _pad;
@@ -66,6 +67,10 @@ class Sounds {
   static const _chimes = 3;
   static int get _birds => _chime0 + _chimes;
   static int get _pop => _birds + 1;
+
+  /// The music's felt notes: C4 D4 E4 G4 A4 C5 D5 E5, below every pour.
+  static int get _felt0 => _pop + 1;
+  static const _feltFreqs = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
 
   /// A cork pops into a finished tube.
   static void pop() {
@@ -89,6 +94,7 @@ class Sounds {
       }
       await e.load([await make('birds', synthBirdsong)]);
       await e.load([await make('pop', synthPop)]);
+      await e.load([for (final (i, f) in _feltFreqs.indexed) await make('felt$i', () => synthFelt(f))]);
       await _prepareAmbience(ambience);
       if (music) await _preparePad();
     } catch (_) {
@@ -198,7 +204,7 @@ class Sounds {
     } catch (_) {}
   }
 
-  /// A kalimba that strolls up and down the scale: small steps, the odd
+  /// A felt music box that strolls up and down the scale: small steps, the odd
   /// leap, and rests, so it never plays the same tune twice.
   static void _scheduleMelody(Duration wait) {
     _melody?.cancel();
@@ -206,10 +212,10 @@ class Sounds {
       if (!music) return;
       if (_rnd.nextDouble() < 0.82) {
         final step = const [-2, -1, -1, 1, 1, 2][_rnd.nextInt(6)];
-        _melodyNote = (_melodyNote + step).clamp(0, 7);
-        _oneShot(_melodyNote, (0.14 + _rnd.nextDouble() * 0.1) * musicLevel);
-        // Now and then a soft fifth above, like a second hand.
-        if (_rnd.nextDouble() < 0.15) _oneShot((_melodyNote + 2).clamp(0, 9), 0.08 * musicLevel);
+        _melodyNote = (_melodyNote + step).clamp(0, _feltFreqs.length - 1);
+        _oneShot(_felt0 + _melodyNote, (0.2 + _rnd.nextDouble() * 0.12) * musicLevel);
+        // Now and then a soft third below, like a second hand.
+        if (_rnd.nextDouble() < 0.15 && _melodyNote >= 2) _oneShot(_felt0 + _melodyNote - 2, 0.1 * musicLevel);
       }
       final ms = 1400 + _rnd.nextInt(2200);
       _scheduleMelody(Duration(milliseconds: ms));

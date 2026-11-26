@@ -23,12 +23,30 @@ class _WebEngine implements NoteEngine {
 
   @override
   Future<void> load(List<Float32List> notes) async {
-    final ctx = _ctx = web.AudioContext();
+    final ctx = _context();
     for (final n in notes) {
       final b = ctx.createBuffer(1, n.length, sampleRate);
       b.copyToChannel(n.toJS, 0);
       _buffers.add(b);
     }
+  }
+
+  /// One context for every sound (browsers limit how many a page may
+  /// open), with a compressor on the way out so many notes never clip.
+  web.AudioNode? _out;
+  web.AudioContext _context() {
+    final ready = _ctx;
+    if (ready != null) return ready;
+    final ctx = _ctx = web.AudioContext();
+    final comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -10;
+    comp.knee.value = 8;
+    comp.ratio.value = 8;
+    comp.attack.value = 0.003;
+    comp.release.value = 0.15;
+    comp.connect(ctx.destination);
+    _out = comp;
+    return ctx;
   }
 
   @override
@@ -39,7 +57,7 @@ class _WebEngine implements NoteEngine {
     final src = ctx.createBufferSource()..buffer = _buffers[note];
     final gain = ctx.createGain()..gain.value = volume;
     src.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(_out ?? ctx.destination);
     src.start();
   }
 
@@ -59,7 +77,7 @@ class _WebEngine implements NoteEngine {
     gain.gain.setValueAtTime(0, ctx.currentTime);
     gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + 1.5);
     src.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(_out ?? ctx.destination);
     src.start();
     _loops[channel] = _Loop(src, gain);
   }
