@@ -275,10 +275,11 @@ class _ResultSheetState extends State<ResultSheet> {
     super.initState();
     _tick();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
-    // Paint the share image quietly once the sheet has settled, so tapping
-    // Share opens the share screen at once.
+    // Paint the share image quietly once the stars, the painting and its
+    // song are done (drawing it during them made a hitch), so tapping Share
+    // usually opens the share screen at once.
     if (widget.showResult && widget.game.status == GameStatus.won) {
-      Future<void>.delayed(const Duration(milliseconds: 900), () {
+      Future<void>.delayed(const Duration(seconds: 8), () {
         if (mounted) _png ??= _render();
       });
     }

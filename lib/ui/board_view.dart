@@ -195,13 +195,19 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     final p = _pending;
     if (p == null) return;
     _pending = null;
-    Haptics.land();
+    // One tap per landing: the strongest thing that happened.
+    if (p.won) {
+      Haptics.win();
+    } else if (p.completedTube) {
+      Haptics.tubeComplete();
+    } else {
+      Haptics.land();
+    }
     Sounds.clink();
     _landAt[p.move.to] = _now;
     _splash(p.move.to, p.color, p.before.tubes[p.move.to].length + p.count - 1);
     _wake();
     if (p.completedTube) {
-      Haptics.tubeComplete();
       Sounds.tubeComplete(p.color);
       Future<void>.delayed(const Duration(milliseconds: 330), Sounds.pop);
       _glowTube = p.move.to;
@@ -214,7 +220,6 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       Sounds.note(7, volume: 0.5);
     }
     if (p.won) {
-      Haptics.win();
       Sounds.solved();
       _win.forward(from: 0);
     }
@@ -240,7 +245,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     final L = _layout;
     if (L == null || Motion.reduced) return;
     final origin = Offset(L.cx(tube), L.tubeTop);
-    for (var i = 0; i < 28; i++) {
+    for (var i = 0; i < 18; i++) {
       final a = -math.pi / 2 + (_rnd.nextDouble() - 0.5) * 2.2;
       final v = L.ball * (3.5 + _rnd.nextDouble() * 4.5);
       _sparks.add(
@@ -631,6 +636,22 @@ class _BoardPainter extends CustomPainter {
         ('back:${picky.toARGB32()}:${picky.toARGB32()}', r0.inflate(2), (cv) => _tubeBack(cv, r0, picky, picky)),
       ('glow', r0.inflate(40), _glowSprite),
     ];
+    // Reflections of every color, ready before a ball lands at the bottom.
+    final y = L.tubeTop + L.tubeH, h = L.ball * 0.34;
+    final rr = Rect.fromCenter(center: Offset(L.cx(0), y + h * 0.15), width: L.ball * 0.8, height: h * 0.55);
+    for (final c in colors) {
+      final color = Palette.balls[c];
+      jobs.add((
+        'refl:${color.toARGB32()}:${Palette.dark}',
+        rr.inflate(h),
+        (cv) => cv.drawOval(
+          rr,
+          Paint()
+            ..color = color.withValues(alpha: Palette.dark ? 0.35 : 0.22)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.3),
+        ),
+      ));
+    }
     for (final (key, bounds, draw) in jobs) {
       if (sprites.has(key)) continue;
       sprites.get(key, bounds, draw);
@@ -829,13 +850,19 @@ class _BoardPainter extends CustomPainter {
       final t = board.tubes[i];
       if (t.isEmpty) continue;
       final c = Palette.balls[t.first];
-      final r = Rect.fromCenter(center: Offset(L.cx(i), y + h * 0.15), width: L.ball * 0.8, height: h * 0.55);
-      canvas.drawOval(
-        r,
-        Paint()
-          ..color = c.withValues(alpha: Palette.dark ? 0.35 : 0.22)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.3),
+      // Blurred once per color, then stamped: a blur every frame is costly.
+      final r0 = Rect.fromCenter(center: Offset(L.cx(0), y + h * 0.15), width: L.ball * 0.8, height: h * 0.55);
+      final sprite = sprites.get(
+        'refl:${c.toARGB32()}:${Palette.dark}',
+        r0.inflate(h),
+        (cv) => cv.drawOval(
+          r0,
+          Paint()
+            ..color = c.withValues(alpha: Palette.dark ? 0.35 : 0.22)
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.3),
+        ),
       );
+      sprites.draw(canvas, sprite, Offset(L.cx(i) - L.cx(0), 0));
     }
   }
 

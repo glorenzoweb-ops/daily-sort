@@ -6,6 +6,7 @@ import 'services/analytics.dart';
 import 'services/cloud_sync.dart';
 import 'services/comfort.dart';
 import 'services/link.dart';
+import 'services/feedback.dart';
 import 'services/premium.dart';
 import 'services/premium_revenuecat.dart';
 import 'services/reminders.dart';
@@ -25,6 +26,7 @@ Future<void> main() async {
   // A new iPhone or a reinstall: bring the streak back from iCloud.
   final fromCloud = await CloudSync.restoreIfNew(storage);
   applySoundAndHaptics(storage);
+  Haptics.prepare();
   Analytics.start(storage); // never awaited
   DailyReminder.reschedule(storage); // never awaited
   final premium = _premium();
