@@ -129,6 +129,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => Future<void>.delayed(const Duration(milliseconds: 300), warmUpEffects),
     );
+    // Then the emoji font and every text weight, before the first menu opens.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => Future<void>.delayed(const Duration(milliseconds: 700), warmUpText),
+    );
   }
 
   @override
