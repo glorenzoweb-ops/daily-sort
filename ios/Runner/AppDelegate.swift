@@ -36,6 +36,7 @@ enum Taps {
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: "daily_sort/taps", binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
+      let start = CACurrentMediaTime()
       switch call.method {
       case "light": light.impactOccurred(); light.prepare()
       case "medium": medium.impactOccurred(); medium.prepare()
@@ -48,7 +49,8 @@ enum Taps {
         result(FlutterMethodNotImplemented)
         return
       }
-      result(nil)
+      // How long the tap took here, for the in-app timing panel.
+      result(Int((CACurrentMediaTime() - start) * 1_000_000))
     }
   }
 }
@@ -63,6 +65,7 @@ enum CloudSync {
     let store = NSUbiquitousKeyValueStore.default
     store.synchronize()
     channel.setMethodCallHandler { call, result in
+      let start = CACurrentMediaTime()
       switch call.method {
       case "get":
         result(store.string(forKey: key))

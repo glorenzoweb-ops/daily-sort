@@ -12,6 +12,7 @@ import '../services/sound.dart';
 import 'ambient_clock.dart';
 import 'motion.dart';
 import 'palette.dart';
+import 'perf_log.dart';
 
 /// Geometry for laying tubes out in one row, sized to the available width.
 class BoardLayout {
@@ -153,7 +154,9 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     return false;
   }
 
-  void _onGame() {
+  void _onGame() => PerfLog.time('board: update', _onGameNow);
+
+  void _onGameNow() {
     // Undo / restart change the board without a tap: drop any animation.
     if (_pending != null && widget.game.history.isEmpty) {
       _pour.stop();
@@ -175,7 +178,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     for (var i = 0; i < b.tubeCount; i++) {
       if (b.isTubeComplete(i)) done++;
     }
-    Sounds.setCalm(done / colors);
+    PerfLog.time('sound: calm fade', () => Sounds.setCalm(done / colors));
   }
 
   @override
@@ -191,28 +194,32 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _finishPour() {
+  void _finishPour() => PerfLog.time('landing (all)', _finishPourNow);
+
+  void _finishPourNow() {
     final p = _pending;
     if (p == null) return;
     _pending = null;
     // One tap per landing: the strongest thing that happened.
-    if (p.won) {
-      Haptics.win();
-    } else if (p.completedTube) {
-      Haptics.tubeComplete();
-    } else {
-      Haptics.land();
-    }
-    Sounds.clink();
+    PerfLog.time('haptic (send)', () {
+      if (p.won) {
+        Haptics.win();
+      } else if (p.completedTube) {
+        Haptics.tubeComplete();
+      } else {
+        Haptics.land();
+      }
+    });
+    PerfLog.time('sound: clink', Sounds.clink);
     _landAt[p.move.to] = _now;
     _splash(p.move.to, p.color, p.before.tubes[p.move.to].length + p.count - 1);
     _wake();
     if (p.completedTube) {
-      Sounds.tubeComplete(p.color);
+      PerfLog.time('sound: tube done', () => Sounds.tubeComplete(p.color));
       Future<void>.delayed(const Duration(milliseconds: 330), Sounds.pop);
       _glowTube = p.move.to;
       _glow.forward(from: 0);
-      _burst(p.move.to, p.color);
+      PerfLog.time('board: confetti', () => _burst(p.move.to, p.color));
     }
     if (p.before.lockRemaining == 1) {
       // The locked tube just opened.
@@ -220,7 +227,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       Sounds.note(7, volume: 0.5);
     }
     if (p.won) {
-      Sounds.solved();
+      PerfLog.time('sound: solved', Sounds.solved);
       _win.forward(from: 0);
     }
     setState(() {});
@@ -264,7 +271,9 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
     _wake();
   }
 
-  void _onTap(Offset pos) {
+  void _onTap(Offset pos) => PerfLog.time('tap (all)', () => _onTapNow(pos));
+
+  void _onTapNow(Offset pos) {
     Sounds.wake();
     final layout = _layout;
     if (layout == null) return;
@@ -279,7 +288,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
       _pour.stop();
       _finishPour();
     }
-    final out = widget.game.tap(tube);
+    final out = PerfLog.time('game: move + save', () => widget.game.tap(tube));
     _announce(out);
     switch (out) {
       case Selected(:final tube):
@@ -291,7 +300,7 @@ class _BoardViewState extends State<BoardView> with TickerProviderStateMixin {
         _lift.reverse();
       case Poured():
         // Play the note right away: browsers only allow audio in a tap.
-        Sounds.pour(out.color, out.before.tubes[out.move.to].length);
+        PerfLog.time('sound: pour', () => Sounds.pour(out.color, out.before.tubes[out.move.to].length));
         _pending = out;
         final ms = 330 + 70 * (out.count - 1);
         _pour.duration = Duration(milliseconds: ms);
@@ -487,7 +496,9 @@ class _BoardPainter extends CustomPainter {
   static double _seg(double t, double a, double b) => ((t - a) / (b - a)).clamp(0.0, 1.0);
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size size) => PerfLog.time('board: draw', () => _paint(canvas, size));
+
+  void _paint(Canvas canvas, Size size) {
     final L = layout;
     final p = pending;
     sprites.prepare(L.size, dpr);
