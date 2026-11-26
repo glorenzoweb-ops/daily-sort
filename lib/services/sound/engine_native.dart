@@ -16,9 +16,25 @@ class _NativeEngine implements NoteEngine {
   final List<AudioSource> _notes = [];
   final Map<String, (AudioSource, SoundHandle)> _loops = {};
   int _loopCount = 0;
+  final Map<int, int> _lastPlay = {};
 
   Future<void>? _ready;
-  Future<void> _init() => _ready ??= _soloud.isInitialized ? Future.value() : _soloud.init(bufferSize: 1024);
+  Future<void> _init() => _ready ??= _start();
+
+  /// A 2048-frame buffer (46 ms) never runs dry while the screen is busy:
+  /// the smaller one did, and an empty buffer is heard as a screech. A
+  /// limiter on the whole mix keeps many notes at once from clipping.
+  Future<void> _start() async {
+    if (!_soloud.isInitialized) await _soloud.init(bufferSize: 2048);
+    try {
+      _soloud.setMaxActiveVoiceCount(24);
+      final limiter = _soloud.filters.limiterFilter;
+      if (!limiter.isActive) limiter.activate();
+      limiter.threshold.value = -6;
+      limiter.outputCeiling.value = -1.5;
+      limiter.releaseTime.value = 120;
+    } catch (_) {}
+  }
 
   @override
   Future<void> load(List<Float32List> notes) async {
@@ -31,6 +47,10 @@ class _NativeEngine implements NoteEngine {
   @override
   void play(int note, double volume) {
     if (note < 0 || note >= _notes.length || !_soloud.isInitialized) return;
+    // The same sound twice within 30 ms only adds up into a harsh spike.
+    final now = DateTime.now().microsecondsSinceEpoch;
+    if (now - (_lastPlay[note] ?? 0) < 30000) return;
+    _lastPlay[note] = now;
     _soloud.play(_notes[note], volume: volume);
   }
 
@@ -39,7 +59,9 @@ class _NativeEngine implements NoteEngine {
     stopLoop(channel);
     await _init();
     final source = await _soloud.loadMem('loop${_loopCount++}.wav', toWav(samples, rate: rate));
-    final handle = _soloud.play(source, volume: volume, looping: true);
+    // Fade in, so a loop never starts with a click.
+    final handle = _soloud.play(source, volume: 0, looping: true);
+    _soloud.fadeVolume(handle, volume, const Duration(milliseconds: 1500));
     _loops[channel] = (source, handle);
   }
 
@@ -48,7 +70,12 @@ class _NativeEngine implements NoteEngine {
     final loop = _loops.remove(channel);
     if (loop == null) return;
     final (source, handle) = loop;
-    _soloud.stop(handle).then((_) => _soloud.disposeSource(source));
+    // Fade out, then free it: stopping mid-wave clicks.
+    try {
+      _soloud.fadeVolume(handle, 0, const Duration(milliseconds: 600));
+      _soloud.scheduleStop(handle, const Duration(milliseconds: 650));
+    } catch (_) {}
+    Future<void>.delayed(const Duration(milliseconds: 800), () => _soloud.disposeSource(source));
   }
 
   @override
