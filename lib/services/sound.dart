@@ -65,8 +65,8 @@ class Sounds {
   // One-shot sample indices after the notes and clinks.
   static int get _chime0 => scale.length + _clinkFreqs.length;
   static const _chimes = 3;
-  static int get _birds => _chime0 + _chimes;
-  static int get _pop => _birds + 1;
+  static int get _sunrise => _chime0 + _chimes;
+  static int get _pop => _sunrise + 1;
 
   /// The music's felt notes: C4 D4 E4 G4 A4 C5 D5 E5, below every pour.
   static int get _felt0 => _pop + 1;
@@ -92,7 +92,7 @@ class Sounds {
       for (var v = 0; v < _chimes; v++) {
         await e.load([await make('chime$v', () => synthChime(v))]);
       }
-      await e.load([await make('birds', synthBirdsong)]);
+      await e.load([await make('sunrise', synthSunrise)]);
       await e.load([await make('pop', synthPop)]);
       await e.load([for (final (i, f) in _feltFreqs.indexed) await make('felt$i', () => synthFelt(f))]);
       await _prepareAmbience(ambience);
@@ -135,10 +135,10 @@ class Sounds {
     if (ambience != Ambience.off || music) _oneShot(_chime0 + _rnd.nextInt(_chimes), 0.5 * effectsLevel);
   }
 
-  /// The solve: the storm clears and the birds come out.
+  /// The solve: the soundscape softens and a warm chord rises.
   static void solved() {
     if (ambience == Ambience.off && !music) return;
-    _oneShot(_birds, 0.6 * ambienceLevel);
+    _oneShot(_sunrise, 0.6 * ambienceLevel);
     _calm = 1;
     _applyCalm(seconds: 4);
   }

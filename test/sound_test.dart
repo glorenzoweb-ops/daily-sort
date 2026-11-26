@@ -51,14 +51,15 @@ void main() {
     expect((s.last - s.first).abs(), lessThanOrEqualTo(maxStep * 1.5));
   });
 
-  test('wind chimes and birdsong are gentle', () {
+  test('wind chimes and the solve chord are gentle', () {
     for (var v = 0; v < 3; v++) {
       final c = synthChime(v);
       expect(c.map((x) => x.abs()).reduce(math.max), lessThanOrEqualTo(0.36));
       expect(c.last.abs(), lessThan(0.01));
     }
-    final b = synthBirdsong();
+    final b = synthSunrise();
     final peak = b.map((x) => x.abs()).reduce(math.max);
-    expect(peak, inInclusiveRange(0.1, 0.23));
+    expect(peak, inInclusiveRange(0.2, 0.31));
+    expect(b.last.abs(), lessThan(0.01));
   });
 }
