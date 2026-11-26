@@ -90,37 +90,26 @@ Float32List synthChime(int variant) {
   return normalize(out, peak: 0.35);
 }
 
-/// Morning birdsong for a solve: two birds trading short chirps and trills.
-Float32List synthBirdsong() {
-  final r = math.Random(424242);
-  final n = (sampleRate * 7.0).round();
+/// The solve, when a soundscape or music is on: a warm chord rolled upward
+/// on the music's felt notes (C4 E4 G4 C5 E5), like a sigh of relief. It
+/// replaced a synthesized birdsong whose 3 to 4 kHz chirps sounded shrill on
+/// phone speakers.
+Float32List synthSunrise() {
+  final n = (sampleRate * 4.0).round();
   final out = Float32List(n);
-  var t0 = 0.15;
-  while (t0 < 6.2) {
-    final bird = r.nextInt(2);
-    final base = bird == 0 ? 3200.0 : 4300.0;
-    final notes = 2 + r.nextInt(5);
-    var at = t0;
-    for (var k = 0; k < notes; k++) {
-      final len = 0.05 + r.nextDouble() * 0.09;
-      final f0 = base * (1.05 + r.nextDouble() * 0.35);
-      final f1 = base * (0.7 + r.nextDouble() * 0.25);
-      final start = (at * sampleRate).round();
-      final m = (len * sampleRate).round();
-      var phase = 0.0;
-      for (var i = 0; i < m && start + i < n; i++) {
-        final x = i / m;
-        // Downward sweep with a tiny warble.
-        final f = f0 + (f1 - f0) * x + 120 * math.sin(2 * math.pi * 38 * i / sampleRate);
-        phase += 2 * math.pi * f / sampleRate;
-        final env = math.sin(math.pi * x);
-        out[start + i] += env * env * math.sin(phase) * (bird == 0 ? 1.0 : 0.7);
-      }
-      at += len + 0.02 + r.nextDouble() * 0.05;
+  const notes = [261.63, 329.63, 392.00, 523.25, 659.25];
+  for (var k = 0; k < notes.length; k++) {
+    final note = synthFelt(notes[k]);
+    final start = (k * 0.11 * sampleRate).round();
+    final amp = 1.0 - k * 0.12;
+    for (var i = 0; i < note.length && start + i < n; i++) {
+      out[start + i] += note[i] * amp;
     }
-    t0 = at + 0.35 + r.nextDouble() * 0.9;
   }
-  return normalize(out, peak: 0.22);
+  for (var i = n - 4000; i < n; i++) {
+    out[i] *= (n - i) / 4000;
+  }
+  return normalize(out, peak: 0.3);
 }
 
 /// A soft cork "pop": a quick falling thump with a breath of air.

@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 /// Plays pre-synthesized sounds. Implemented per platform.
 abstract class NoteEngine {
-  /// One-shot sounds (notes, clinks, chimes, birdsong) at [sampleRate].
+  /// One-shot sounds (notes, clinks, chimes, the solve chord) at [sampleRate].
   Future<void> load(List<Float32List> notes);
   void play(int note, double volume);
 
