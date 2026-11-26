@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'game/game_controller.dart';
 import 'services/analytics.dart';
 import 'services/cloud_sync.dart';
 import 'services/comfort.dart';
@@ -16,6 +17,7 @@ import 'ui/appearance.dart';
 import 'ui/game_screen.dart';
 import 'ui/palette.dart';
 import 'ui/perf.dart';
+import 'ui/perf_log.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,7 +97,9 @@ class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive) GameController.flushAll();
     if (state == AppLifecycleState.paused) {
+      GameController.flushAll();
       _leftAt = DateTime.now();
       Analytics.flush();
       CloudSync.push(widget.storage);
@@ -182,6 +186,7 @@ class _DailySortAppState extends State<DailySortApp> with WidgetsBindingObserver
         title: 'Daily Sort',
         scaffoldMessengerKey: _messenger,
         showPerformanceOverlay: perf,
+        builder: (context, child) => Stack(children: [child!, if (perf) const PerfLogPanel()]),
         debugShowCheckedModeBanner: false,
         theme: base.copyWith(textTheme: GoogleFonts.nunitoTextTheme(base.textTheme)),
         home: GameScreen(

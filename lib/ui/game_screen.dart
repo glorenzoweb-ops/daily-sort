@@ -35,6 +35,7 @@ import 'archive.dart';
 import 'sheets.dart';
 import 'shop.dart';
 import 'social.dart';
+import 'perf_log.dart';
 import 'streak.dart';
 import 'tutorial.dart';
 import 'warmup.dart';
@@ -780,133 +781,133 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _buildGame(GameController g) {
     return ListenableBuilder(
       listenable: g,
-      builder: (context, _) {
-        final p = g.puzzle;
-        // Read saved data once per rebuild (it's JSON under the hood).
-        final friendsToday = p.isPractice || g.archive ? const <FriendResult>[] : _friends.forDay(p.number);
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-              child: Stack(
-                alignment: Alignment.center,
+      builder: (context, _) => PerfLog.time('screen: rebuild', () => _gameColumn(g)),
+    );
+  }
+
+  Widget _gameColumn(GameController g) {
+    final p = g.puzzle;
+    // Read saved data once per rebuild (it's JSON under the hood).
+    final friendsToday = p.isPractice || g.archive ? const <FriendResult>[] : _friends.forDay(p.number);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      _IconBtn(Icons.home_rounded, 'Menu', _goHome),
-                      _IconBtn(Icons.tune_rounded, 'Settings', _openSettings),
-                      const Spacer(),
-                      _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
-                      _IconBtn(
-                        Icons.bar_chart_rounded,
-                        'Statistics',
-                        () => _openResults(statsOnly: g.status != GameStatus.won),
-                      ),
-                    ],
-                  ),
-                  ModeSwitch(unwind: _inUnwind, onChanged: _setMode),
-                ],
-              ),
-            ),
-            const SizedBox(height: 4),
-            SecretTaps(
-              child: Text(
-                _adventDoor != null && _inUnwind ? 'DOOR $_adventDoor' : (p.isPractice ? 'UNWIND' : 'DAILY SORT'),
-                style: Palette.display(size: 38, spacing: 2).copyWith(
-                  shadows: const [
-                    Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
-                    Shadow(color: Color(0x33000000), offset: Offset(0, 5), blurRadius: 6),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              p.isPractice
-                  ? (_adventDoor != null
-                        ? 'Advent calendar · December $_adventDoor'
-                        : 'No limits. Just sort and breathe.')
-                  : (g.archive
-                        ? '#${p.number}  ·  ${dayLabel(p.day)}  ·  from the archive'
-                        : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}'),
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
-                if (g.archive) ...[
-                  const SizedBox(width: 10),
-                  _TodayPill(onTap: () => _setMode(false)),
-                ] else if (!p.isPractice) ...[
-                  const SizedBox(width: 10),
-                  Builder(
-                    builder: (context) {
-                      final stats = widget.storage.stats;
-                      return StreakFlame(
-                        streak: stats.currentStreak(p.number),
-                        litToday: g.status == GameStatus.won,
-                        freezes: stats.freezes,
-                        onTap: _openStreak,
-                      );
-                    },
+                  _IconBtn(Icons.home_rounded, 'Menu', _goHome),
+                  _IconBtn(Icons.tune_rounded, 'Settings', _openSettings),
+                  const Spacer(),
+                  _IconBtn(Icons.people_alt_rounded, 'Friends', _openFriends),
+                  _IconBtn(
+                    Icons.bar_chart_rounded,
+                    'Statistics',
+                    () => _openResults(statsOnly: g.status != GameStatus.won),
                   ),
                 ],
+              ),
+              ModeSwitch(unwind: _inUnwind, onChanged: _setMode),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        SecretTaps(
+          child: Text(
+            _adventDoor != null && _inUnwind ? 'DOOR $_adventDoor' : (p.isPractice ? 'UNWIND' : 'DAILY SORT'),
+            style: Palette.display(size: 38, spacing: 2).copyWith(
+              shadows: const [
+                Shadow(color: Color(0xFFFFC23F), offset: Offset(0, 3)),
+                Shadow(color: Color(0x33000000), offset: Offset(0, 5), blurRadius: 6),
               ],
             ),
-            if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
-            if (!p.isPractice && !g.archive && adventSeason(DateTime.now())) ...[
-              const SizedBox(height: 8),
-              _AdventChip(onTap: _openAdvent),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          p.isPractice
+              ? (_adventDoor != null ? 'Advent calendar · December $_adventDoor' : 'No limits. Just sort and breathe.')
+              : (g.archive
+                    ? '#${p.number}  ·  ${dayLabel(p.day)}  ·  from the archive'
+                    : '#${p.number}  ·  ${dayLabel(p.day)}  ·  ${difficultyLabel(p.difficulty)}'),
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Palette.inkSoft),
+        ),
+        const SizedBox(height: 18),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _MovesPill(used: g.movesUsed, limit: p.isPractice ? null : p.moveLimit),
+            if (g.archive) ...[
+              const SizedBox(width: 10),
+              _TodayPill(onTap: () => _setMode(false)),
+            ] else if (!p.isPractice) ...[
+              const SizedBox(width: 10),
+              Builder(
+                builder: (context) {
+                  final stats = widget.storage.stats;
+                  return StreakFlame(
+                    streak: stats.currentStreak(p.number),
+                    litToday: g.status == GameStatus.won,
+                    freezes: stats.freezes,
+                    onTap: _openStreak,
+                  );
+                },
+              ),
             ],
-            const SizedBox(height: 8),
-            Text(
-              switch (g.status) {
-                GameStatus.won => 'Solved!  ·  par ${p.par}',
-                // Players who run out wonder if it was even possible.
-                GameStatus.outOfMoves => 'Proven solvable in ${p.par}  ·  try again?',
-                _ => p.isPractice ? 'Par ${p.par}  ·  take your time' : 'Par ${p.par}  ·  ${g.movesLeft} left',
-              },
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: !p.isPractice && g.movesLeft <= 2 && g.status == GameStatus.playing
-                    ? Palette.danger
-                    : Palette.inkSoft,
-              ),
-            ),
-            if (friendsToday.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              FriendsChip(
-                today: friendsToday,
-                myMoves: g.status == GameStatus.won ? g.movesUsed : null,
-                onTap: _openFriends,
-              ),
-            ],
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
-                child: BoardView(
-                  // A new look means new ball and glass images.
-                  key: ValueKey((g, Palette.dark, Palette.ballsKey)),
-                  game: g,
-                  onWinAnimationDone: _onWin,
-                  breathe: p.isPractice,
-                ),
-              ),
-            ),
-            _BottomBar(
-              game: g,
-              onResults: _openResults,
-              onNext: _startPractice,
-              onHint: _useHint,
-              hintLabel: _hintLabel(g),
-            ),
-            const SizedBox(height: 16),
           ],
-        );
-      },
+        ),
+        if (p.twist != Twist.classic) ...[const SizedBox(height: 10), TwistChip(puzzle: p)],
+        if (!p.isPractice && !g.archive && adventSeason(DateTime.now())) ...[
+          const SizedBox(height: 8),
+          _AdventChip(onTap: _openAdvent),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          switch (g.status) {
+            GameStatus.won => 'Solved!  ·  par ${p.par}',
+            // Players who run out wonder if it was even possible.
+            GameStatus.outOfMoves => 'Proven solvable in ${p.par}  ·  try again?',
+            _ => p.isPractice ? 'Par ${p.par}  ·  take your time' : 'Par ${p.par}  ·  ${g.movesLeft} left',
+          },
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: !p.isPractice && g.movesLeft <= 2 && g.status == GameStatus.playing
+                ? Palette.danger
+                : Palette.inkSoft,
+          ),
+        ),
+        if (friendsToday.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          FriendsChip(
+            today: friendsToday,
+            myMoves: g.status == GameStatus.won ? g.movesUsed : null,
+            onTap: _openFriends,
+          ),
+        ],
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 12, 8, 0),
+            child: BoardView(
+              // A new look means new ball and glass images.
+              key: ValueKey((g, Palette.dark, Palette.ballsKey)),
+              game: g,
+              onWinAnimationDone: _onWin,
+              breathe: p.isPractice,
+            ),
+          ),
+        ),
+        _BottomBar(
+          game: g,
+          onResults: _openResults,
+          onNext: _startPractice,
+          onHint: _useHint,
+          hintLabel: _hintLabel(g),
+        ),
+        const SizedBox(height: 16),
+      ],
     );
   }
 }

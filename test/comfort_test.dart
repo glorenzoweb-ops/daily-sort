@@ -57,6 +57,7 @@ void main() {
       final m = g.board.legalMoves().first;
       g.tap(m.from);
       g.tap(m.to);
+      g.flushSave();
       await s.saveDay(1, DayRecord(solved: true, solvedMoves: 9, moves: [m, m, m]));
       final b = Backup.parse(Backup.of(s).encode())!;
       final day1 = jsonDecode(b.data['day_1'] as String) as Map;

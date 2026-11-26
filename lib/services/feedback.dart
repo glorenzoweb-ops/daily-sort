@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../ui/perf_log.dart';
+
 /// Haptics in one place, so they can be switched off and tuned together.
 /// On web these are no-ops (browsers mostly don't expose vibration).
 ///
@@ -38,7 +40,8 @@ class Haptics {
 
   static Future<void> _send(String kind) async {
     try {
-      await _channel.invokeMethod<void>(kind);
+      final micros = await _channel.invokeMethod<Object?>(kind);
+      if (micros is int) PerfLog.record('haptic: $kind (on iPhone)', micros / 1000);
     } on MissingPluginException {
       _nativeWorks = false;
     } catch (_) {}

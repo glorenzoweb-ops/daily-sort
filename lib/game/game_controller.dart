@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../services/analytics.dart';
@@ -257,12 +259,47 @@ class GameController extends ChangeNotifier {
     return out;
   }
 
+  /// Saves the moves so far. Not right away: writing goes through the phone's
+  /// settings store on the main thread, so it waits until the pour has landed
+  /// and the board is quiet (a burst of moves is saved once).
   void _persist() {
     if (puzzle.isPractice) return;
     final r = _record ??= DayRecord();
     r.moves = List.of(history);
     r.attempts = attempts;
-    storage.saveDay(puzzle.number, r);
+    _saveTimer?.cancel();
+    _saveTimer = Timer(saveDelay, flushSave);
+    _waiting.add(this);
+  }
+
+  static final _waiting = <GameController>{};
+
+  /// Saves every game with moves still waiting (the app is going away).
+  static void flushAll() {
+    for (final g in List.of(_waiting)) {
+      g.flushSave();
+    }
+  }
+
+  /// How long after the last move it is saved.
+  static Duration saveDelay = const Duration(milliseconds: 900);
+  Timer? _saveTimer;
+
+  /// Saves now anything still waiting (also when the app goes to the background).
+  void flushSave() {
+    final t = _saveTimer;
+    if (t == null) return;
+    t.cancel();
+    _saveTimer = null;
+    _waiting.remove(this);
+    final r = _record;
+    if (r != null && !puzzle.isPractice) storage.saveDay(puzzle.number, r);
+  }
+
+  @override
+  void dispose() {
+    flushSave();
+    super.dispose();
   }
 
   /// Set when this Unwind solve earned a streak freeze.
